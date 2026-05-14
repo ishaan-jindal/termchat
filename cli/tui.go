@@ -4,7 +4,16 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
+)
+
+var (
+	borderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	systemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	nickStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 )
 
 type IncomingMessage Message
@@ -17,6 +26,10 @@ type Model struct {
 
 	nick string
 	room string
+
+	viewport viewport.Model
+	width    int
+	height   int
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -25,12 +38,15 @@ func NewModel(conn *Connection, nick string, room string) Model {
 	ti.Placeholder = "Type a message..."
 	ti.Focus()
 
+	vp := viewport.New(0, 0)
+
 	return Model{
 		conn:     conn,
 		messages: []string{},
 		input:    ti,
 		nick:     nick,
 		room:     room,
+		viewport: vp,
 	}
 }
 
@@ -64,16 +80,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 
 		case "system":
-			m.messages = append(m.messages, "[system] "+msg.Text)
+			formatted := systemStyle.Render("[system] " + msg.Text)
+			if m.viewport.Width > 0 {
+				formatted = wordwrap.String(formatted, m.viewport.Width)
+			}
+			m.messages = append(m.messages, formatted)
 
 		case "message":
-			m.messages = append(
-				m.messages,
-				msg.Nick+": "+msg.Text,
-			)
+			formatted := nickStyle.Render(msg.Nick) + ": " + msg.Text
+			if m.viewport.Width > 0 {
+				formatted = wordwrap.String(formatted, m.viewport.Width)
+			}
+			m.messages = append(m.messages, formatted)
 		}
 
+		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+		m.viewport.GotoBottom()
+
 		return m, waitForMessage(m.conn)
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		headerHeight := 3
+		inputHeight := 3
+		borderHeight := 2
+
+		m.viewport.Width = msg.Width - 4
+		m.viewport.Height = msg.Height - headerHeight - inputHeight - borderHeight
+
+		m.input.Width = msg.Width - 6
+
+		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -84,14 +125,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	var output strings.Builder
-	output.WriteString("Room: " + m.room + "\n\n")
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Render("Room: " + m.room)
 
-	for _, msg := range m.messages {
-		output.WriteString(msg + "\n")
-	}
+	content := m.viewport.View()
 
-	output.WriteString("\n> " + m.input.View())
+	input := "> " + m.input.View()
 
-	return output.String()
+	ui := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		"",
+		content,
+		"",
+		input,
+	)
+
+	return borderStyle.
+		Width(m.width - 2).
+		Height(m.height - 2).
+		Render(ui)
 }
