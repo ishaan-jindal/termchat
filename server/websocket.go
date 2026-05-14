@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -13,12 +14,24 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
+)
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	client := &Client{
 		Conn: conn,
@@ -92,11 +105,35 @@ func readPump(client *Client) {
 }
 
 func writePump(client *Client) {
-	for msg := range client.Send {
-		err := client.Conn.WriteJSON(msg)
-		if err != nil {
-			log.Println(err)
-			return
+	ticker := time.NewTicker(pingPeriod)
+
+	defer func() {
+		ticker.Stop()
+		client.Conn.Close()
+	}()
+
+	for {
+		select {
+
+		case msg, ok := <-client.Send:
+			if !ok {
+				return
+			}
+
+			err := client.Conn.WriteJSON(msg)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+		case <-ticker.C:
+			err := client.Conn.WriteMessage(
+				websocket.PingMessage,
+				nil,
+			)
+			if err != nil {
+				return
+			}
 		}
 	}
 }
@@ -150,6 +187,7 @@ func cleanupClient(client *Client) {
 		}
 	}
 
+	close(client.Send)
 	client.Conn.Close()
 
 	log.Printf("%s disconnected\n", client.Nickname)
