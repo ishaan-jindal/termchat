@@ -31,16 +31,20 @@ func main() {
 	binaryPath = os.Getenv("BINARY_PATH")
 
 	if binaryPath == "" {
-		binaryPath = "../dist/termchat"
+		binaryPath = "../dist"
 	}
 
 	r := chi.NewRouter()
 
+	// Linux/macOS bootstrap
 	r.Get("/", createRoomHandler)
 	r.Get("/{room}", joinRoomHandler)
 
-	// binary download endpoint
-	r.Get("/bin/termchat", binaryHandler)
+	// Windows bootstrap
+	r.Get("/win/{room}", windowsJoinHandler)
+
+	// Binary downloads
+	r.Get("/bin/{binary}", binaryHandler)
 
 	addr := ":" + apiPort
 
@@ -64,18 +68,89 @@ func joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	renderBootstrapScript(w, room)
 }
 
+func windowsJoinHandler(w http.ResponseWriter, r *http.Request) {
+	room := chi.URLParam(r, "room")
+
+	script := fmt.Sprintf(`
+$arch = $env:PROCESSOR_ARCHITECTURE
+
+if ($arch -eq "AMD64") {
+    $binary = "termchat-windows-amd64.exe"
+} elseif ($arch -eq "ARM64") {
+    $binary = "termchat-windows-arm64.exe"
+} else {
+    Write-Host "Unsupported architecture"
+    exit
+}
+
+$temp = "$env:TEMP\termchat.exe"
+
+Write-Host "Downloading $binary..."
+
+Invoke-WebRequest -Uri "%s/bin/$binary" -OutFile $temp
+
+Write-Host "Launching room %s..."
+
+Start-Process -FilePath $temp -ArgumentList "--room %s --server %s"
+`,
+		publicAPIURL,
+		room,
+		room,
+		publicWSURL,
+	)
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	w.Write([]byte(script))
+}
+
 func binaryHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, binaryPath)
+	binary := chi.URLParam(r, "binary")
+
+	path := binaryPath + "/" + binary
+
+	http.ServeFile(w, r, path)
 }
 
 func renderBootstrapScript(w http.ResponseWriter, room string) {
 	script := fmt.Sprintf(`#!/bin/bash
 
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+case "$OS" in
+    Linux)
+        PLATFORM="linux"
+        ;;
+    Darwin)
+        PLATFORM="darwin"
+        ;;
+    *)
+        echo "Unsupported OS"
+        exit 1
+        ;;
+esac
+
+case "$ARCH" in
+    x86_64)
+        ARCH="amd64"
+        ;;
+    arm64|aarch64)
+        ARCH="arm64"
+        ;;
+    *)
+        echo "Unsupported architecture"
+        exit 1
+        ;;
+esac
+
+BINARY="termchat-$PLATFORM-$ARCH"
+
 TMP=$(mktemp)
 
-echo "Downloading termchat..."
+echo "Downloading $BINARY..."
 
-curl -sSL %s/bin/termchat -o $TMP
+curl -fsSL %s/bin/$BINARY -o $TMP
 
 chmod +x $TMP
 

@@ -12,13 +12,7 @@ import (
 )
 
 func main() {
-	tty, err := os.Open("/dev/tty")
-	if err != nil {
-		log.Fatal("failed to open terminal")
-	}
-	defer tty.Close()
-
-	reader := bufio.NewReader(tty)
+	reader := getInputReader()
 
 	fmt.Print("Nickname: ")
 	nick, _ := reader.ReadString('\n')
@@ -61,4 +55,13 @@ func main() {
 	}
 
 	conn.conn.Close()
+}
+
+func getInputReader() *bufio.Reader {
+	tty, err := os.Open("/dev/tty")
+	if err == nil {
+		return bufio.NewReader(tty)
+	}
+
+	return bufio.NewReader(os.Stdin)
 }
