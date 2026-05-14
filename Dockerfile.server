@@ -1,0 +1,21 @@
+FROM golang:1.26 AS builder
+
+WORKDIR /app
+
+COPY . .
+
+WORKDIR /app/server
+
+RUN go build -o server
+
+FROM debian:stable-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/server/server .
+
+COPY .env /app/.env
+
+EXPOSE 8080
+
+CMD ["./server"]

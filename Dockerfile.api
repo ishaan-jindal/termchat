@@ -1,0 +1,22 @@
+FROM golang:1.26 AS builder
+
+WORKDIR /app
+
+COPY . .
+
+WORKDIR /app/api
+
+RUN go build -o api
+
+FROM debian:stable-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/api/api .
+COPY --from=builder /app/dist /app/dist
+
+COPY .env /app/.env
+
+EXPOSE 3000
+
+CMD ["./api"]

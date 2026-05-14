@@ -1,0 +1,28 @@
+services:
+
+  websocket:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+
+    container_name: termchat-websocket
+
+    ports:
+      - "8080:8080"
+
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+
+    container_name: termchat-api
+
+    ports:
+      - "3000:3000"
+
+    restart: unless-stopped
+
+    depends_on:
+      - websocket

@@ -18,7 +18,7 @@ var (
 )
 
 func main() {
-	err := godotenv.Load("../.env")
+	err := godotenv.Load(".env")
 	if err != nil {
 		log.Println("no .env file found")
 	}
