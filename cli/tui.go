@@ -58,10 +58,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
+
 		switch msg.String() {
 
 		case "ctrl+c":
 			return m, tea.Quit
+
+		case "up", "down", "pgup", "pgdown":
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 
 		case "enter":
 			text := m.input.Value()
@@ -76,6 +82,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+
+		return m, cmd
+
 	case IncomingMessage:
 		switch msg.Type {
 
@@ -87,15 +98,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, formatted)
 
 		case "message":
-			formatted := nickStyle.Render(msg.Nick) + ": " + msg.Text
+			nick := colorForNick(msg.Nick).Render(msg.Nick)
+			formatted := nick + ": " + msg.Text
 			if m.viewport.Width > 0 {
 				formatted = wordwrap.String(formatted, m.viewport.Width)
 			}
 			m.messages = append(m.messages, formatted)
 		}
 
+		atBottom := m.viewport.AtBottom()
+
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
-		m.viewport.GotoBottom()
+		if atBottom {
+			m.viewport.GotoBottom()
+		}
 
 		return m, waitForMessage(m.conn)
 
@@ -146,4 +162,31 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Height(m.height - 2).
 		Render(ui)
+}
+
+func colorForNick(nick string) lipgloss.Style {
+	colors := []string{
+		"2",
+		"3",
+		"4",
+		"5",
+		"6",
+		"12",
+		"13",
+		"14",
+	}
+
+	hash := 0
+
+	for _, c := range nick {
+		hash += int(c)
+	}
+
+	return lipgloss.NewStyle().
+		Foreground(
+			lipgloss.Color(
+				colors[hash%len(colors)],
+			),
+		).
+		Bold(true)
 }

@@ -39,7 +39,10 @@ func main() {
 
 	p := tea.NewProgram(model)
 
-	if _, err := p.Run(); err != nil {
+	_, err = p.Run()
+	if err != nil {
 		log.Fatal(err)
 	}
+
+	conn.conn.Close()
 }
