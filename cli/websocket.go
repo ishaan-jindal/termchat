@@ -1,36 +1,34 @@
 package main
 
 import (
-	"log"
-
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gorilla/websocket"
 )
 
-func connectWebSocket(server string) (*websocket.Conn, error) {
+type Connection struct {
+	conn *websocket.Conn
+}
+
+func connectWebSocket(server string) (*Connection, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(server, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return conn, nil
+	return &Connection{
+		conn: conn,
+	}, nil
 }
 
-func readMessages(conn *websocket.Conn) {
-	for {
-		var msg Message
+func waitForMessage(conn *Connection) tea.Cmd {
+	return func() tea.Msg {
+		var msg IncomingMessage
 
-		err := conn.ReadJSON(&msg)
+		err := conn.conn.ReadJSON(&msg)
 		if err != nil {
-			log.Println("disconnected from server")
-			return
+			return tea.Quit()
 		}
 
-		switch msg.Type {
-		case "system":
-			println("[system]", msg.Text)
-
-		case "message":
-			println(msg.Nick+":", msg.Text)
-		}
+		return msg
 	}
 }

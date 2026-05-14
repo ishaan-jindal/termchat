@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
@@ -24,8 +26,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Send join packet
-	err = conn.WriteJSON(Message{
+	err = conn.conn.WriteJSON(Message{
 		Type: "join",
 		Nick: nick,
 		Room: room,
@@ -34,29 +35,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Connected to room", room)
+	model := NewModel(conn, nick, room)
 
-	// Start message reader
-	go readMessages(conn)
+	p := tea.NewProgram(model)
 
-	// Input loop
-	for {
-		fmt.Print("> ")
-
-		text, _ := reader.ReadString('\n')
-		text = strings.TrimSpace(text)
-
-		if text == "" {
-			continue
-		}
-
-		err := conn.WriteJSON(Message{
-			Type: "message",
-			Text: text,
-		})
-		if err != nil {
-			log.Println("failed to send message")
-			return
-		}
+	if _, err := p.Run(); err != nil {
+		log.Fatal(err)
 	}
 }
