@@ -1,1 +1,23 @@
+# binaries
+dist/
+
+# Go
+*.exe
+*.out
+*.test
+
+# env
 .env
+
+# editor
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# logs
+*.log
+
+# temp
+tmp/

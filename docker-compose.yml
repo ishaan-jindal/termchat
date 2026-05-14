@@ -7,9 +7,6 @@ services:
 
     container_name: termchat-websocket
 
-    ports:
-      - "8080:8080"
-
     restart: unless-stopped
 
   api:
@@ -19,10 +16,25 @@ services:
 
     container_name: termchat-api
 
-    ports:
-      - "3000:3000"
-
     restart: unless-stopped
 
     depends_on:
       - websocket
+
+  caddy:
+    image: caddy:latest
+
+    container_name: termchat-caddy
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+
+    depends_on:
+      - api
+      - websocket
+
+    restart: unless-stopped
