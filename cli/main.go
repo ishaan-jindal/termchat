@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,17 +12,32 @@ import (
 )
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		log.Fatal("failed to open terminal")
+	}
+	defer tty.Close()
+
+	reader := bufio.NewReader(tty)
 
 	fmt.Print("Nickname: ")
 	nick, _ := reader.ReadString('\n')
 	nick = strings.TrimSpace(nick)
 
-	fmt.Print("Room: ")
-	room, _ := reader.ReadString('\n')
-	room = strings.TrimSpace(room)
+	roomFlag := flag.String("room", "", "room code")
+	serverFlag := flag.String("server", "ws://localhost:8080/ws", "websocket server")
 
-	conn, err := connectWebSocket("ws://localhost:8080/ws")
+	flag.Parse()
+
+	room := *roomFlag
+
+	if room == "" {
+		fmt.Print("Room: ")
+		roomInput, _ := reader.ReadString('\n')
+		room = strings.TrimSpace(roomInput)
+	}
+
+	conn, err := connectWebSocket(*serverFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
