@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -62,6 +63,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 
 		case "ctrl+c":
+			clearTerminal()
 			return m, tea.Quit
 
 		case "up", "down", "pgup", "pgdown":
@@ -71,6 +73,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			text := m.input.Value()
+
+			if strings.HasPrefix(text, "/") {
+				ok := handleCommand(&m, text)
+
+				m.input.SetValue("")
+
+				if !ok {
+					return m, tea.Quit
+				}
+
+				return m, nil
+			}
 
 			if text != "" {
 				m.conn.conn.WriteJSON(Message{
@@ -98,12 +112,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, formatted)
 
 		case "message":
-			nick := colorForNick(msg.Nick).Render(msg.Nick)
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(msg.Color)).
+				Bold(true)
+			nick := style.Render(msg.Nick)
 			formatted := nick + ": " + msg.Text
 			if m.viewport.Width > 0 {
 				formatted = wordwrap.String(formatted, m.viewport.Width)
 			}
 			m.messages = append(m.messages, formatted)
+
+		case "users_list":
+			m.messages = append(
+				m.messages,
+				systemStyle.Render("Online: "+msg.Text),
+			)
 		}
 
 		atBottom := m.viewport.AtBottom()
@@ -164,29 +187,95 @@ func (m Model) View() string {
 		Render(ui)
 }
 
-func colorForNick(nick string) lipgloss.Style {
-	colors := []string{
-		"2",
-		"3",
-		"4",
-		"5",
-		"6",
-		"12",
-		"13",
-		"14",
-	}
+func handleCommand(m *Model, input string) bool {
+	parts := strings.Split(input, " ")
 
-	hash := 0
+	cmd := parts[0]
 
-	for _, c := range nick {
-		hash += int(c)
-	}
+	switch cmd {
 
-	return lipgloss.NewStyle().
-		Foreground(
-			lipgloss.Color(
-				colors[hash%len(colors)],
+	case "/clear":
+		m.messages = []string{}
+		m.viewport.SetContent("")
+		return true
+
+	case "/quit":
+		clearTerminal()
+		return false
+
+	case "/help":
+		m.messages = append(m.messages,
+			systemStyle.Render(
+				"Commands: /help /clear /nick /color /users /quit",
 			),
-		).
-		Bold(true)
+		)
+
+		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+		m.viewport.GotoBottom()
+
+		return true
+
+	case "/nick":
+		if len(parts) < 2 {
+			return true
+		}
+
+		newNick := parts[1]
+
+		m.conn.conn.WriteJSON(Message{
+			Type:    "nick",
+			NewNick: newNick,
+		})
+
+		m.nick = newNick
+
+		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+		m.viewport.GotoBottom()
+
+		return true
+
+	case "/users":
+		m.conn.conn.WriteJSON(Message{
+			Type: "users",
+		})
+
+		return true
+
+	case "/color":
+		if len(parts) < 2 {
+			return true
+		}
+
+		color := parts[1]
+
+		if !isValidHexColor(color) {
+			m.messages = append(
+				m.messages,
+				systemStyle.Render("Invalid hex color"),
+			)
+
+			m.viewport.SetContent(strings.Join(m.messages, "\n"))
+			m.viewport.GotoBottom()
+
+			return true
+		}
+
+		m.conn.conn.WriteJSON(Message{
+			Type:  "color",
+			Color: color,
+		})
+
+		return true
+	}
+
+	return true
+}
+
+func clearTerminal() {
+	print("\033[H\033[2J")
+}
+
+func isValidHexColor(color string) bool {
+	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	return re.MatchString(color)
 }

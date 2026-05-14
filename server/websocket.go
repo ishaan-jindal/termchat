@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -54,6 +55,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client.Nickname = joinMsg.Nick
+	client.Color = defaultColorForNick(client.Nickname)
 	client.RoomID = joinMsg.Room
 
 	room, exists := rooms[client.RoomID]
@@ -98,7 +100,54 @@ func readPump(client *Client) {
 			return
 		}
 
+		if msg.Type == "nick" {
+			oldNick := client.Nickname
+
+			client.Nickname = msg.NewNick
+			client.Color = defaultColorForNick(client.Nickname)
+
+			broadcastToRoom(client.RoomID, Message{
+				Type: "system",
+				Text: oldNick + " is now known as " + client.Nickname,
+			})
+
+			continue
+		}
+
+		if msg.Type == "users" {
+			room := rooms[client.RoomID]
+
+			room.Mutex.Lock()
+
+			var users []string
+
+			for c := range room.Clients {
+				users = append(users, c.Nickname)
+			}
+
+			room.Mutex.Unlock()
+
+			client.Send <- Message{
+				Type: "users_list",
+				Text: strings.Join(users, ", "),
+			}
+
+			continue
+		}
+
+		if msg.Type == "color" {
+			client.Color = msg.Color
+
+			client.Send <- Message{
+				Type: "system",
+				Text: "Color updated to " + client.Color,
+			}
+
+			continue
+		}
+
 		msg.Nick = client.Nickname
+		msg.Color = client.Color
 
 		broadcastToRoom(client.RoomID, msg)
 	}
@@ -191,4 +240,33 @@ func cleanupClient(client *Client) {
 	client.Conn.Close()
 
 	log.Printf("%s disconnected\n", client.Nickname)
+}
+
+func defaultColorForNick(nick string) string {
+	colors := []string{
+		"#00d7ff",
+		"#5fd700",
+		"#87ff00",
+		"#ffd700",
+		"#ffaf00",
+		"#ff8700",
+		"#ff5f5f",
+		"#ff00af",
+		"#d75fff",
+		"#875fff",
+		"#5f87ff",
+		"#00afff",
+		"#00ffd7",
+		"#5fffaf",
+		"#afff5f",
+		"#ffff5f",
+	}
+
+	hash := 5381
+
+	for _, c := range nick {
+		hash = ((hash << 5) + hash) + int(c)
+	}
+
+	return colors[hash%len(colors)]
 }

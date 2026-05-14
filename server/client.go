@@ -7,4 +7,5 @@ type Client struct {
 	Nickname string
 	RoomID   string
 	Send     chan Message
+	Color    string
 }
