@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"text/template"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -68,38 +70,68 @@ func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
 	renderWindowsBootstrap(w, room)
 }
 
-func renderWindowsBootstrap(w http.ResponseWriter, room string) {
-	script := fmt.Sprintf(`
-$arch = $env:PROCESSOR_ARCHITECTURE
+func renderBootstrapScript(w http.ResponseWriter, room string) {
+	content, err := os.ReadFile("scripts/bootstrap.sh")
+	if err != nil {
+		http.Error(w, "failed to load bootstrap script", http.StatusInternalServerError)
+		return
+	}
 
-if ($arch -eq "AMD64") {
-    $binary = "termchat-windows-amd64.exe"
-} elseif ($arch -eq "ARM64") {
-    $binary = "termchat-windows-arm64.exe"
-} else {
-    Write-Host "Unsupported architecture"
-    exit
-}
+	tmpl, err := template.New("bootstrap").Parse(string(content))
+	if err != nil {
+		http.Error(w, "failed to parse bootstrap script", http.StatusInternalServerError)
+		return
+	}
 
-$temp = "$env:TEMP\termchat.exe"
+	data := map[string]string{
+		"Room":   room,
+		"ApiURL": publicAPIURL,
+		"WsURL":  publicWSURL,
+	}
 
-Write-Host "Downloading $binary..."
+	var out bytes.Buffer
 
-Invoke-WebRequest -Uri "%s/bin/$binary" -OutFile $temp
-
-Write-Host "Launching room %s..."
-
-& $temp --room %s --server %s
-`,
-		publicAPIURL,
-		room,
-		room,
-		publicWSURL,
-	)
+	err = tmpl.Execute(&out, data)
+	if err != nil {
+		http.Error(w, "failed to render bootstrap script", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/plain")
 
-	w.Write([]byte(script))
+	w.Write(out.Bytes())
+}
+
+func renderWindowsBootstrap(w http.ResponseWriter, room string) {
+	content, err := os.ReadFile("scripts/bootstrap.ps1")
+	if err != nil {
+		http.Error(w, "failed to load bootstrap script", http.StatusInternalServerError)
+		return
+	}
+
+	tmpl, err := template.New("bootstrap").Parse(string(content))
+	if err != nil {
+		http.Error(w, "failed to parse bootstrap script", http.StatusInternalServerError)
+		return
+	}
+
+	data := map[string]string{
+		"Room":   room,
+		"ApiURL": publicAPIURL,
+		"WsURL":  publicWSURL,
+	}
+
+	var out bytes.Buffer
+
+	err = tmpl.Execute(&out, data)
+	if err != nil {
+		http.Error(w, "failed to render bootstrap script", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+
+	w.Write(out.Bytes())
 }
 
 func binaryHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,68 +148,6 @@ func binaryHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
-}
-
-func renderBootstrapScript(w http.ResponseWriter, room string) {
-	script := fmt.Sprintf(`#!/bin/bash
-
-OS=$(uname -s)
-ARCH=$(uname -m)
-
-case "$OS" in
-    Linux)
-        PLATFORM="linux"
-        ;;
-    Darwin)
-        PLATFORM="darwin"
-        ;;
-    *)
-        echo "Unsupported OS"
-        exit 1
-        ;;
-esac
-
-case "$ARCH" in
-    x86_64)
-        ARCH="amd64"
-        ;;
-
-	i386|i686)
-		ARCH="386"
-		;;
-
-    arm64|aarch64)
-        ARCH="arm64"
-        ;;
-    *)
-        echo "Unsupported architecture"
-        exit 1
-        ;;
-esac
-
-BINARY="termchat-$PLATFORM-$ARCH"
-
-TMP=$(mktemp)
-
-echo "Downloading $BINARY..."
-
-curl -fsSL %s/bin/$BINARY -o $TMP
-
-chmod +x $TMP
-
-echo "Launching room %s..."
-
-$TMP --room %s --server %s
-`,
-		publicAPIURL,
-		room,
-		room,
-		publicWSURL,
-	)
-
-	w.Header().Set("Content-Type", "text/plain")
-
-	w.Write([]byte(script))
 }
 
 func generateRoomCode() string {
