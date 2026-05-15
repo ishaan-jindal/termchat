@@ -1,7 +1,7 @@
 services:
 
   websocket:
-    image: ghcr.io/YOUR_USERNAME/termchat/termchat-websocket:v0.1.0
+    image: ghcr.io/ishaan-jindal/termchat/termchat-websocket:${RELEASE_VERSION}
 
     container_name: termchat-websocket
 
@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/YOUR_USERNAME/termchat/termchat-api:v0.1.0
+    image: ghcr.io/ishaan-jindal/termchat/termchat-api:${RELEASE_VERSION}
 
     container_name: termchat-api
 
