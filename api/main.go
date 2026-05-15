@@ -28,6 +28,7 @@ func main() {
 	r.Get("/{room}", joinRoomHandler)
 
 	// Windows bootstrap
+	r.Get("/win", windowsCreateRoomHandler)
 	r.Get("/win/{room}", windowsJoinHandler)
 
 	// Binary downloads
@@ -58,6 +59,16 @@ func joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 func windowsJoinHandler(w http.ResponseWriter, r *http.Request) {
 	room := chi.URLParam(r, "room")
 
+	renderWindowsBootstrap(w, room)
+}
+
+func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
+	room := generateRoomCode()
+
+	renderWindowsBootstrap(w, room)
+}
+
+func renderWindowsBootstrap(w http.ResponseWriter, room string) {
 	script := fmt.Sprintf(`
 $arch = $env:PROCESSOR_ARCHITECTURE
 
@@ -78,7 +89,7 @@ Invoke-WebRequest -Uri "%s/bin/$binary" -OutFile $temp
 
 Write-Host "Launching room %s..."
 
-Start-Process -FilePath $temp -ArgumentList "--room %s --server %s"
+& $temp --room %s --server %s
 `,
 		publicAPIURL,
 		room,

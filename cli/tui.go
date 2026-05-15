@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -107,7 +108,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "system":
 			formatted := systemStyle.Render("[system] " + msg.Text)
 			if m.viewport.Width > 0 {
-				formatted = wordwrap.String(formatted, m.viewport.Width)
+				if runtime.GOARCH != "386" {
+					formatted = wordwrap.String(formatted, m.viewport.Width)
+				}
 			}
 			m.messages = append(m.messages, formatted)
 
@@ -118,7 +121,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			nick := style.Render(msg.Nick)
 			formatted := nick + ": " + msg.Text
 			if m.viewport.Width > 0 {
-				formatted = wordwrap.String(formatted, m.viewport.Width)
+				if runtime.GOARCH != "386" {
+					formatted = wordwrap.String(formatted, m.viewport.Width)
+				}
 			}
 			m.messages = append(m.messages, formatted)
 
