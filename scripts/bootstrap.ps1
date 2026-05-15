@@ -6,15 +6,28 @@ param(
 
 $arch = $env:PROCESSOR_ARCHITECTURE
 
-if ($arch -eq "AMD64") {
-    $binary = "termchat-windows-amd64.exe"
+if ($env:PROCESSOR_ARCHITEW6432) {
+    $arch = $env:PROCESSOR_ARCHITEW6432
 }
-elseif ($arch -eq "ARM64") {
-    $binary = "termchat-windows-arm64.exe"
-}
-else {
-    Write-Host "Unsupported architecture"
-    exit
+
+switch ($arch) {
+
+    "AMD64" {
+        $binary = "termchat-windows-amd64.exe"
+    }
+
+    "x86" {
+        $binary = "termchat-windows-amd64.exe"
+    }
+
+    "ARM64" {
+        $binary = "termchat-windows-arm64.exe"
+    }
+
+    default {
+        Write-Host "Unsupported architecture: $arch"
+        exit
+    }
 }
 
 $temp = "$env:TEMP\termchat.exe"

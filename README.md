@@ -2,740 +2,296 @@
 
 Anonymous ephemeral terminal chatrooms.
 
-Open website → copy command → paste into terminal → instant shared chat room.
-
-No accounts.
-No installs.
-No persistence.
-No friction.
+Open terminal → paste one command → instantly chat.
 
 ---
 
-# Concept
+# Features
 
-`termchat` is a lightweight real-time terminal chat system built around temporary rooms.
-
-Users create or join rooms through a website, receive a one-line bootstrap command, and instantly connect through a terminal UI client.
-
-The product is intentionally:
-
-* anonymous
-* disposable
-* fast
-* terminal-native
-
-Think:
-
-* IRC without setup
-* Discord stripped to essentials
-* multiplayer terminal session vibes
+* Anonymous realtime chat rooms
+* Terminal-native TUI
+* Cross-platform bootstrap system
+* Linux / macOS / Windows / Android (Termux) support
+* Ephemeral rooms
+* Nickname colors
+* Slash commands
+* Dockerized deployment
+* GitHub Actions CI/CD
+* GHCR container deployment
 
 ---
 
-# Core User Flow
+# Demo
 
-## Create Room
+## Linux / macOS
 
-User visits website.
-
-Clicks:
-
-```text
-New Chat
-```
-
-Website returns:
+Create room:
 
 ```bash
-curl -sSL https://termchat.app/r/FROG | bash
+curl https://localhost | bash
 ```
 
-User runs it.
+Join room:
 
-Client launches:
-
-```text
-Enter nickname:
-> ghost
+```bash
+curl https://localhost/FROG | bash
 ```
 
-Connected:
+---
+
+## Windows (PowerShell)
+
+Create room:
+
+```powershell
+irm https://localhost/win -OutFile termchat-bootstrap.ps1
+.\termchat-bootstrap.ps1
+```
+
+Join room:
+
+```powershell
+irm https://localhost/win/FROG -OutFile termchat-bootstrap.ps1
+.\termchat-bootstrap.ps1
+```
+
+If PowerShell blocks scripts:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+---
+
+## Android / Termux
+
+```bash
+curl https://localhost | bash
+```
+
+---
+
+# Supported Platforms
+
+| Platform         | Architecture |
+| ---------------- | ------------ |
+| Linux            | amd64        |
+| Linux            | arm64        |
+| Linux            | 386 / i686   |
+| macOS            | amd64        |
+| macOS            | arm64        |
+| Windows          | amd64        |
+| Windows          | arm64        |
+| Android / Termux | arm64        |
+
+---
+
+# Screenshots
 
 ```text
 ┌ Room: FROG ──────────────────────┐
-│ alice: hey                      │
-│ ghost: yo                       │
+│ alice: hello                    │
+│ bob: hi                         │
 │                                  │
 ├──────────────────────────────────┤
 │ >                                │
 └──────────────────────────────────┘
 ```
 
-User shares room code:
-
-```text
-FROG
-```
-
 ---
 
-## Join Room
+# Slash Commands
 
-User visits website.
-
-Enters room code:
-
-```text
-FROG
-```
-
-Website returns:
-
-```bash
-curl -sSL https://termchat.app/j/FROG | bash
-```
-
-User launches terminal client and joins instantly.
-
----
-
-# Product Philosophy
-
-## Things This App SHOULD Be
-
-* instant
-* anonymous
-* minimal
-* temporary
-* terminal-first
-* hacker-ish
-* fun
-* low commitment
-
----
-
-## Things This App SHOULD NOT Be
-
-* social network
-* account system
-* persistent messaging platform
-* Slack clone
-* Discord clone
-* enterprise software
-
-The appeal is the lack of ceremony.
+| Command       | Description           |
+| ------------- | --------------------- |
+| `/help`       | Show help             |
+| `/clear`      | Clear chat            |
+| `/users`      | Show online users     |
+| `/nick NAME`  | Change nickname       |
+| `/color #HEX` | Change nickname color |
+| `/quit`       | Exit                  |
 
 ---
 
 # Architecture
 
 ```text
-Website
-   ↓
-Bootstrap Endpoint
-   ↓
-CLI/TUI Client
-   ↓
-WebSocket Server
-   ↓
-Room Broadcast System
+GitHub Actions
+    ↓
+GHCR + GitHub Releases
+    ↓
+API server
+    ↓
+Bootstrap scripts
+    ↓
+CLI binaries
+    ↓
+WebSocket server
 ```
 
 ---
 
-# Components
+# Project Structure
 
-# 1. Website
-
-Tiny frontend.
-
-Responsibilities:
-
-* create room
-* join room
-* generate bootstrap commands
-* explain product
-
-No auth.
-No dashboard.
-No user management.
-
----
-
-## Suggested Pages
-
-### `/`
-
-Landing page.
+```text
+termchat/
+├── api/
+├── cli/
+├── server/
+├── scripts/
+│   ├── bootstrap.sh
+│   └── bootstrap.ps1
+├── caddy/
+├── .github/workflows/
+├── Dockerfile.api
+├── Dockerfile.server
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
 
 ---
 
-### `/new`
+# Local Development
 
-Creates room.
+## Requirements
 
-Returns:
-
-* room code
-* bootstrap command
-
----
-
-### `/join`
-
-Input field for room code.
-
-Returns:
-
-* join command
+* Go 1.26+
+* Docker
+* Docker Compose
 
 ---
 
-# 2. Bootstrap System
-
-## Goal
-
-Zero-install UX.
-
-User pastes:
+# Run WebSocket Server
 
 ```bash
-curl -sSL https://termchat.app/r/FROG | bash
+cd server
+go run .
 ```
-
-Server returns shell script.
-
-Script:
-
-* detects platform
-* downloads binary
-* executes binary
-* passes room code
 
 ---
 
-## Example Bootstrap Script
+# Run API Server
 
 ```bash
-#!/bin/bash
-
-ARCH=$(uname -m)
-OS=$(uname -s)
-
-TMP=$(mktemp)
-
-curl -sSL https://cdn.termchat.app/bin/linux-amd64 -o $TMP
-
-chmod +x $TMP
-
-$TMP --room FROG
+cd api
+go run .
 ```
 
 ---
 
-# 3. CLI/TUI Client
+# Run CLI
 
-## Responsibilities
-
-* websocket connection
-* rendering messages
-* input handling
-* reconnect logic
-* slash commands
-* nickname handling
+```bash
+cd cli
+go run .
+```
 
 ---
 
-## Suggested Stack
+# Environment Variables
 
-### Language
+Example `.env`:
 
-* Go
+```env
+WS_HOST=0.0.0.0
+WS_PORT=8080
+
+API_PORT=3000
+
+PUBLIC_API_URL=https://localhost
+PUBLIC_WS_URL=wss://localhost/ws
+
+GITHUB_REPO=YOUR_USERNAME/termchat
+RELEASE_VERSION=v0.1.0
+```
 
 ---
 
-### TUI Framework
+# Docker Deployment
 
-* Bubble Tea
+## Start Stack
 
----
-
-### Styling
-
-* Lip Gloss
+```bash
+docker compose up -d
+```
 
 ---
 
-# TUI Layout
+## Pull Updated Images
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+---
+
+# Caddy
+
+Example `Caddyfile`:
 
 ```text
-┌ Room: FROG ─────────────────────────┐
-│                                     │
-│ alice: hello                        │
-│ ghost: hi                           │
-│                                     │
-│ bob joined the room                 │
-│                                     │
-├─────────────────────────────────────┤
-│ >                                   │
-└─────────────────────────────────────┘
-```
+localhost {
 
----
+    reverse_proxy /ws* websocket:8080
 
-# 4. WebSocket Server
-
-Core realtime layer.
-
-Handles:
-
-* room creation
-* room membership
-* broadcasts
-* disconnects
-* cleanup
-
----
-
-## Suggested Stack
-
-### Go
-
-Use:
-
-* gorilla/websocket
-  or
-* nhooyr/websocket
-
----
-
-# Room Structure
-
-```go
-type Room struct {
-    ID        string
-    Clients   map[*Client]bool
-    CreatedAt time.Time
+    reverse_proxy api:3000
 }
 ```
 
 ---
 
-# Client Structure
+# CI/CD
 
-```go
-type Client struct {
-    Conn     *websocket.Conn
-    Nickname string
-    RoomID   string
-}
+GitHub Actions automatically:
+
+* Builds CLI binaries
+* Publishes GitHub Release assets
+* Builds Docker images
+* Pushes images to GHCR
+
+Triggered via tags:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
-
----
-
-# Global Room Registry
-
-```go
-map[string]*Room
-```
-
----
-
-# Message Protocol
-
-## Join Event
-
-```json
-{
-  "type": "join",
-  "nick": "ghost",
-  "room": "FROG"
-}
-```
-
----
-
-## Chat Message
-
-```json
-{
-  "type": "message",
-  "text": "hello"
-}
-```
-
----
-
-## Broadcast Message
-
-```json
-{
-  "type": "message",
-  "nick": "ghost",
-  "text": "hello",
-  "timestamp": 1740000
-}
-```
-
----
-
-## System Message
-
-```json
-{
-  "type": "system",
-  "text": "bob joined the room"
-}
-```
-
----
-
-# Room Codes
-
-Use:
-
-* short
-* memorable
-* shareable
-
-Good:
-
-```text
-FROG
-LIME
-K9X2
-BYTE
-NOVA
-```
-
-Bad:
-
-```text
-4f7c8d1b-e93e
-```
-
----
-
-# Room Lifecycle
-
-Rooms are ephemeral.
-
----
-
-## Suggested Cleanup Rules
-
-Delete room if:
-
-* no users remain
-* inactive for 1 hour
-* max lifespan exceeded
-
----
-
-# Nicknames
-
-Anonymous identity only.
-
-Prompt on startup:
-
-```text
-Enter nickname:
->
-```
-
----
-
-## Rules
-
-* no uniqueness required
-* max length
-* sanitize ANSI escape sequences
-* sanitize control characters
-
----
-
-# Slash Commands
-
-## MVP Commands
-
-```text
-/nick newname
-/users
-/clear
-/help
-/quit
-```
-
----
-
-# Transport
-
-## Use WebSockets
-
-Do NOT:
-
-* poll
-* refresh
-* use REST for messaging
-
-Realtime terminal chat is exactly what WebSockets are for.
-
----
-
-# State Management
-
-Initial version can be fully in-memory.
-
-No database required.
-
----
-
-# Persistence
-
-None.
-
-Messages disappear when room dies.
-
-That is part of the appeal.
-
----
-
-# Infra
-
-Very lightweight.
-
-A single small VM can likely handle:
-
-* hundreds/thousands of concurrent sockets
-
-depending on implementation.
-
----
-
-# Suggested Hosting
-
-* [Fly.io](https://fly.io?utm_source=chatgpt.com)
-* [Railway](https://railway.app?utm_source=chatgpt.com)
-* [Hetzner](https://www.hetzner.com?utm_source=chatgpt.com)
-* [DigitalOcean](https://www.digitalocean.com?utm_source=chatgpt.com)
-
----
-
-# Binary Distribution
-
-Build binaries for:
-
-* linux-amd64
-* linux-arm64
-* macos-amd64
-* macos-arm64
-
-Optional later:
-
-* windows
 
 ---
 
 # Security Notes
 
-## Important
+Current implementation includes:
 
-Users are cautious about:
+* WebSocket keepalive
+* Buffered message queues
+* Cross-platform bootstrap detection
 
-```bash
-curl ... | bash
-```
+Still recommended before public exposure:
 
-So:
-
-* make bootstrap script visible on website
-* open source the client
-* keep bootstrap tiny
-* avoid suspicious behavior
+* ANSI escape sanitization
+* Message length limits
+* Rate limiting
+* Room validation hardening
 
 ---
 
-## Sanitize Input
+# Technologies
 
-Must sanitize:
-
-* terminal escape sequences
-* ANSI injection
-* control characters
-
-Otherwise users can:
-
-* clear terminals
-* move cursor
-* spoof UI
+* Go
+* Gorilla WebSocket
+* Bubble Tea
+* Lip Gloss
+* Chi
+* Docker
+* Caddy
+* GitHub Actions
+* GHCR
 
 ---
 
-# Suggested Features
+# License
 
-# MVP
-
-* anonymous rooms
-* room codes
-* realtime chat
-* terminal UI
-* join/leave events
-* auto cleanup
-
----
-
-# Nice Additions
-
-## Colored Nicknames
-
-Deterministic hash:
-
-```text
-alice -> blue
-bob -> green
-```
-
----
-
-## Typing Indicator
-
-```text
-alice is typing...
-```
-
----
-
-## Online User List
-
-```text
-/users
-```
-
----
-
-## Reconnect Support
-
-Recover after temporary disconnect.
-
----
-
-## Sound Notifications
-
-Terminal bell:
-
-```text
-\a
-```
-
----
-
-## Paste Support
-
-Multiline pastes.
-
----
-
-## Markdown-ish Formatting
-
-Optional:
-
-```text
-*bold*
-_italic_
-`code`
-```
-
----
-
-# Features To Avoid
-
-Avoid turning this into:
-
-* Slack
-* Discord
-* Matrix
-* IRC replacement
-
-Overbuilding kills the gimmick.
-
----
-
-# Branding Direction
-
-## Themes
-
-* hacker
-* retro terminal
-* cyberpunk
-* minimal unix tooling
-
----
-
-## Good Names
-
-* termchat
-* ttychat
-* shelltalk
-* ghostroom
-* pipechat
-* roomsh
-* talksh
-* cliq
-* voidchat
-
----
-
-# Future Ideas
-
-# SSH Style Join
-
-```bash
-ssh termchat.app/FROG
-```
-
----
-
-# LAN Discovery
-
-```bash
-termchat --local
-```
-
-Using UDP broadcast.
-
----
-
-# File Sharing
-
-Upload through CLI.
-
-Server returns:
-
-```text
-https://termchat.app/f/abc123
-```
-
----
-
-# Self Hosting
-
-Docker image:
-
-```bash
-docker run termchat/server
-```
-
----
-
-# Philosophy Summary
-
-The entire experience should feel like:
-
-```text
-open terminal
-paste command
-instantly talking
-```
-
-Everything else is secondary.
+MIT
 
