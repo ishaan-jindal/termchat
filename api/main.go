@@ -138,12 +138,10 @@ func binaryHandler(w http.ResponseWriter, r *http.Request) {
 	binary := chi.URLParam(r, "binary")
 
 	repo := os.Getenv("GITHUB_REPO")
-	version := os.Getenv("RELEASE_VERSION")
 
 	url := fmt.Sprintf(
-		"https://github.com/%s/releases/download/%s/%s",
+		"https://github.com/%s/releases/latest/download/%s",
 		repo,
-		version,
 		binary,
 	)
 
