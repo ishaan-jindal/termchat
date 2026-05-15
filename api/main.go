@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,8 +14,9 @@ import (
 )
 
 var (
-	publicAPIURL string
-	publicWSURL  string
+	publicAPIURL     string
+	publicWSURL      string
+	latestCLIVersion string
 )
 
 func main() {
@@ -22,6 +24,7 @@ func main() {
 
 	publicAPIURL = os.Getenv("PUBLIC_API_URL")
 	publicWSURL = os.Getenv("PUBLIC_WS_URL")
+	latestCLIVersion = fetchLatestCLIVersion()
 
 	r := chi.NewRouter()
 
@@ -84,9 +87,10 @@ func renderBootstrapScript(w http.ResponseWriter, room string) {
 	}
 
 	data := map[string]string{
-		"Room":   room,
-		"ApiURL": publicAPIURL,
-		"WsURL":  publicWSURL,
+		"Room":    room,
+		"ApiURL":  publicAPIURL,
+		"WsURL":   publicWSURL,
+		"Version": latestCLIVersion,
 	}
 
 	var out bytes.Buffer
@@ -116,9 +120,10 @@ func renderWindowsBootstrap(w http.ResponseWriter, room string) {
 	}
 
 	data := map[string]string{
-		"Room":   room,
-		"ApiURL": publicAPIURL,
-		"WsURL":  publicWSURL,
+		"Room":    room,
+		"ApiURL":  publicAPIURL,
+		"WsURL":   publicWSURL,
+		"Version": latestCLIVersion,
 	}
 
 	var out bytes.Buffer
@@ -167,4 +172,34 @@ func generateRoomCode() string {
 	}
 
 	return string(result)
+}
+
+func fetchLatestCLIVersion() string {
+	repo := os.Getenv("GITHUB_REPO")
+
+	url := fmt.Sprintf(
+		"https://api.github.com/repos/%s/releases/latest",
+		repo,
+	)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Println(err)
+		return "cli-v0.0.0"
+	}
+	defer resp.Body.Close()
+
+	type release struct {
+		TagName string `json:"tag_name"`
+	}
+
+	var r release
+
+	err = json.NewDecoder(resp.Body).Decode(&r)
+	if err != nil {
+		log.Println(err)
+		return "cli-v0.0.0"
+	}
+
+	return r.TagName
 }
