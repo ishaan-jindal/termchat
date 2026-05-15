@@ -14,7 +14,6 @@ import (
 var (
 	publicAPIURL string
 	publicWSURL  string
-	binaryPath   string
 )
 
 func main() {
@@ -27,12 +26,6 @@ func main() {
 
 	publicAPIURL = os.Getenv("PUBLIC_API_URL")
 	publicWSURL = os.Getenv("PUBLIC_WS_URL")
-
-	binaryPath = os.Getenv("BINARY_PATH")
-
-	if binaryPath == "" {
-		binaryPath = "../dist"
-	}
 
 	r := chi.NewRouter()
 
@@ -107,9 +100,17 @@ Start-Process -FilePath $temp -ArgumentList "--room %s --server %s"
 func binaryHandler(w http.ResponseWriter, r *http.Request) {
 	binary := chi.URLParam(r, "binary")
 
-	path := binaryPath + "/" + binary
+	repo := os.Getenv("GITHUB_REPO")
+	version := os.Getenv("RELEASE_VERSION")
 
-	http.ServeFile(w, r, path)
+	url := fmt.Sprintf(
+		"https://github.com/%s/releases/download/%s/%s",
+		repo,
+		version,
+		binary,
+	)
+
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func renderBootstrapScript(w http.ResponseWriter, room string) {
