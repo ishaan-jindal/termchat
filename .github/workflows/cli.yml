@@ -1,0 +1,78 @@
+name: CLI Release
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+jobs:
+
+  binaries:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    strategy:
+      max-parallel: 2
+
+      matrix:
+        include:
+
+          - os: linux
+            arch: amd64
+            ext: ""
+
+          - os: linux
+            arch: arm64
+            ext: ""
+
+          - os: linux
+            arch: 386
+            ext: ""
+
+          - os: darwin
+            arch: amd64
+            ext: ""
+
+          - os: darwin
+            arch: arm64
+            ext: ""
+
+          - os: windows
+            arch: amd64
+            ext: ".exe"
+
+          - os: windows
+            arch: arm64
+            ext: ".exe"
+
+          - os: android
+            arch: arm64
+            ext: ""
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+
+      - name: Build CLI binary
+        run: |
+          mkdir -p dist
+
+          CGO_ENABLED=0 \
+          GOOS=${{ matrix.os }} \
+          GOARCH=${{ matrix.arch }} \
+          go build \
+          -o dist/termchat-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} \
+          ./cli
+
+      - name: Upload release binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
