@@ -1,7 +1,7 @@
 services:
 
   websocket:
-    image: ghcr.io/ishaan-jindal/termchat/termchat-websocket:${RELEASE_VERSION}
+    image: ghcr.io/ishaan-jindal/termchat/termchat-websocket:latest
 
     container_name: termchat-websocket
 
@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/ishaan-jindal/termchat/termchat-api:${RELEASE_VERSION}
+    image: ghcr.io/ishaan-jindal/termchat/termchat-api:latest
 
     container_name: termchat-api
 
@@ -40,3 +40,16 @@ services:
       - websocket
 
     restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+
+    container_name: termchat-watchtower
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    command: --interval 30
+
+    restart: unless-stopped
+
