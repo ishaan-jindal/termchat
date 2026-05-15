@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"runtime"
 	"strings"
@@ -13,9 +14,26 @@ import (
 )
 
 var (
-	borderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	systemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	nickStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+	systemStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8"))
+
+	mentionStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("255")).
+			Foreground(lipgloss.Color("0")).
+			Bold(true)
+
+	panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(0, 1)
+
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1)
+
+	usersHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("10"))
 )
 
 type IncomingMessage Message
@@ -26,12 +44,17 @@ type Model struct {
 	messages []string
 	input    textinput.Model
 
-	nick string
-	room string
+	nick      string
+	room      string
+	users     []string
+	connected bool
 
 	viewport viewport.Model
 	width    int
 	height   int
+
+	history      []string
+	historyIndex int
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -43,12 +66,16 @@ func NewModel(conn *Connection, nick string, room string) Model {
 	vp := viewport.New(0, 0)
 
 	return Model{
-		conn:     conn,
-		messages: []string{},
-		input:    ti,
-		nick:     nick,
-		room:     room,
-		viewport: vp,
+		conn:         conn,
+		messages:     []string{},
+		input:        ti,
+		nick:         nick,
+		room:         room,
+		users:        []string{},
+		connected:    true,
+		viewport:     vp,
+		history:      []string{},
+		historyIndex: 0,
 	}
 }
 
@@ -67,13 +94,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clearTerminal()
 			return m, tea.Quit
 
-		case "up", "down", "pgup", "pgdown":
+		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 
+		case "up":
+			if len(m.history) > 0 && m.historyIndex > 0 {
+				m.historyIndex--
+				m.input.SetValue(m.history[m.historyIndex])
+			}
+			return m, nil
+
+		case "down":
+			if len(m.history) > 0 && m.historyIndex < len(m.history)-1 {
+				m.historyIndex++
+				m.input.SetValue(m.history[m.historyIndex])
+			} else {
+				m.historyIndex = len(m.history)
+				m.input.SetValue("")
+			}
+			return m, nil
+
 		case "enter":
-			text := m.input.Value()
+			text := strings.TrimSpace(m.input.Value())
 
 			if strings.HasPrefix(text, "/") {
 				ok := handleCommand(&m, text)
@@ -88,6 +132,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if text != "" {
+				m.history = append(m.history, text)
+				m.historyIndex = len(m.history)
+
 				m.conn.conn.WriteJSON(Message{
 					Type: "message",
 					Text: text,
@@ -98,21 +145,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		var cmd tea.Cmd
+
 		m.input, cmd = m.input.Update(msg)
 
 		return m, cmd
 
 	case IncomingMessage:
+
 		switch msg.Type {
 
 		case "system", "message":
 			appendFormattedMessage(&m, Message(msg))
 
 		case "users_list":
-			m.messages = append(
-				m.messages,
-				systemStyle.Render("Online: "+msg.Text),
-			)
+			if strings.TrimSpace(msg.Text) == "" {
+				m.users = []string{}
+			} else {
+				m.users = strings.Split(msg.Text, ", ")
+			}
 
 		case "history":
 			for _, historyMsg := range msg.Messages {
@@ -123,6 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		atBottom := m.viewport.AtBottom()
 
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
+
 		if atBottom {
 			m.viewport.GotoBottom()
 		}
@@ -133,14 +184,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		headerHeight := 3
-		inputHeight := 3
-		borderHeight := 2
+		sidebarWidth := 22
 
-		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - headerHeight - inputHeight - borderHeight
+		m.viewport.Width = msg.Width - sidebarWidth - 10
+		m.viewport.Height = msg.Height - 10
 
-		m.input.Width = msg.Width - 6
+		m.input.Width = msg.Width - 10
 
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 
@@ -155,27 +204,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	header := lipgloss.NewStyle().
-		Bold(true).
-		Render("Room: " + m.room)
+	messagesPanel := panelStyle.
+		Width(m.viewport.Width).
+		Height(m.viewport.Height).
+		Render(m.viewport.View())
 
-	content := m.viewport.View()
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		messagesPanel,
+		renderUsers(m),
+	)
 
-	input := "> " + m.input.View()
+	input := panelStyle.
+		Width(m.width - 6).
+		Render("> " + m.input.View())
+
+	status := panelStyle.
+		Width(m.width - 6).
+		Render(
+			statusStyle.Render(
+				fmt.Sprintf(
+					"Connected • Room %s • %d users",
+					m.room,
+					len(m.users),
+				),
+			),
+		)
 
 	ui := lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
-		"",
 		content,
-		"",
 		input,
+		status,
 	)
 
-	return borderStyle.
-		Width(m.width - 2).
-		Height(m.height - 2).
-		Render(ui)
+	return ui
+}
+
+func renderUsers(m Model) string {
+	var lines []string
+
+	header := usersHeaderStyle.Render("Users")
+
+	lines = append(lines, header)
+	lines = append(lines, strings.Repeat("─", 18))
+	lines = append(lines, "")
+
+	lines = append(lines, m.users...)
+
+	content := strings.Join(lines, "\n")
+
+	return panelStyle.
+		Width(24).
+		Height(m.viewport.Height).
+		Render(content)
 }
 
 func appendFormattedMessage(m *Model, msg Message) {
@@ -193,24 +275,41 @@ func appendFormattedMessage(m *Model, msg Message) {
 		m.messages = append(m.messages, formatted)
 
 	case "message":
-		plain := msg.Nick + ": " + msg.Text
-
-		if m.viewport.Width > 0 && runtime.GOARCH != "386" {
-			plain = wordwrap.String(plain, m.viewport.Width)
-		}
-
-		style := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(msg.Color)).
-			Bold(true)
-
-		nick := style.Render(msg.Nick)
-
-		formatted := strings.Replace(
-			plain,
-			msg.Nick,
-			nick,
-			1,
+		mentioned := strings.Contains(
+			strings.ToLower(msg.Text),
+			"@"+strings.ToLower(m.nick),
 		)
+
+		var formatted string
+
+		if mentioned {
+			formatted = msg.Nick + ": " + msg.Text
+
+			if m.viewport.Width > 0 && runtime.GOARCH != "386" {
+				formatted = wordwrap.String(formatted, m.viewport.Width)
+			}
+
+			formatted = lipgloss.NewStyle().
+				Background(lipgloss.Color("11")).
+				Foreground(lipgloss.Color("0")).
+				Bold(true).
+				Render(formatted)
+
+			print("\a")
+
+		} else {
+			style := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(msg.Color)).
+				Bold(true)
+
+			nick := style.Render(msg.Nick)
+
+			formatted = nick + ": " + msg.Text
+
+			if m.viewport.Width > 0 && runtime.GOARCH != "386" {
+				formatted = wordwrap.String(formatted, m.viewport.Width)
+			}
+		}
 
 		m.messages = append(m.messages, formatted)
 	}
@@ -233,9 +332,10 @@ func handleCommand(m *Model, input string) bool {
 		return false
 
 	case "/help":
-		m.messages = append(m.messages,
+		m.messages = append(
+			m.messages,
 			systemStyle.Render(
-				"Commands: /help /clear /nick /color /users /quit",
+				"Commands: /help /clear /nick /color /quit",
 			),
 		)
 
@@ -257,16 +357,6 @@ func handleCommand(m *Model, input string) bool {
 		})
 
 		m.nick = newNick
-
-		m.viewport.SetContent(strings.Join(m.messages, "\n"))
-		m.viewport.GotoBottom()
-
-		return true
-
-	case "/users":
-		m.conn.conn.WriteJSON(Message{
-			Type: "users",
-		})
 
 		return true
 
