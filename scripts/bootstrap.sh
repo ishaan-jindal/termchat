@@ -50,14 +50,28 @@ esac
 
 BINARY="termchat-$PLATFORM-$ARCH"
 
-TMP=$(mktemp)
+CACHE_DIR="$HOME/.termchat"
 
-echo "Downloading $BINARY..."
+mkdir -p "$CACHE_DIR"
 
-curl -fsSL "$API_URL/bin/$BINARY" -o "$TMP"
+BINARY_PATH="$CACHE_DIR/$BINARY"
+VERSION_FILE="$CACHE_DIR/version"
 
-chmod +x "$TMP"
+if [ ! -f "$BINARY_PATH" ] || \
+   [ ! -f "$VERSION_FILE" ] || \
+   [ "$(cat "$VERSION_FILE")" != "{{.Version}}" ]; then
+
+    echo "Downloading $BINARY..."
+
+    curl -fsSL "$API_URL/bin/$BINARY" -o "$BINARY_PATH"
+
+    chmod +x "$BINARY_PATH"
+
+    echo "{{.Version}}" > "$VERSION_FILE"
+fi
 
 echo "Launching room $ROOM..."
 
-"$TMP" --room "$ROOM" --server "$WS_URL"
+exec "$BINARY_PATH" \
+    --room="$ROOM" \
+    --server="$WS_URL"

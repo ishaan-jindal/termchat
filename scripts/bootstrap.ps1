@@ -30,18 +30,44 @@ switch ($arch) {
     }
 }
 
-$temp = "$env:TEMP\termchat.exe"
+$cacheDir = "$env:LOCALAPPDATA\termchat"
 
-Write-Host "Downloading $binary..."
+New-Item `
+    -ItemType Directory `
+    -Force `
+    -Path $cacheDir | Out-Null
 
-Invoke-WebRequest `
-    -Uri "$ApiUrl/bin/$binary" `
-    -OutFile $temp
+$binaryPath = "$cacheDir\termchat.exe"
+$versionFile = "$cacheDir\version.txt"
+
+$needsDownload = $true
+
+if ((Test-Path $binaryPath) -and (Test-Path $versionFile)) {
+
+    $currentVersion = Get-Content $versionFile
+
+    if ($currentVersion -eq "{{.Version}}") {
+        $needsDownload = $false
+    }
+}
+
+if ($needsDownload) {
+
+    Write-Host "Downloading $binary..."
+
+    Invoke-WebRequest `
+        -Uri "$ApiUrl/bin/$binary" `
+        -OutFile $binaryPath
+
+    Set-Content `
+        -Path $versionFile `
+        -Value "{{.Version}}"
+}
 
 Write-Host "Launching room $Room..."
 
 Start-Process `
-    -FilePath $temp `
+    -FilePath $binaryPath `
     -ArgumentList "--room $Room --server $WsUrl" `
     -NoNewWindow `
     -Wait
