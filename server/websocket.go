@@ -106,6 +106,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Text: client.Nickname + " joined the room",
 	})
 
+	// Update User list
+	broadcastUsersList(client.RoomID)
+
 	// Start reader loop
 	readPump(client)
 }
@@ -149,6 +152,8 @@ func readPump(client *Client) {
 				Type: "system",
 				Text: oldNick + " is now known as " + client.Nickname,
 			})
+
+			broadcastUsersList(client.RoomID)
 
 			continue
 		}
@@ -293,7 +298,46 @@ func cleanupClient(client *Client) {
 	close(client.Send)
 	client.Conn.Close()
 
+	// Update User list
+	broadcastUsersList(client.RoomID)
+
 	log.Printf("%s disconnected\n", client.Nickname)
+}
+
+func broadcastUsersList(roomID string) {
+	room, exists := rooms[roomID]
+
+	if !exists {
+		return
+	}
+
+	room.Mutex.Lock()
+
+	var users []string
+
+	for client := range room.Clients {
+		users = append(users, client.Nickname)
+	}
+
+	clients := make([]*Client, 0, len(room.Clients))
+
+	for client := range room.Clients {
+		clients = append(clients, client)
+	}
+
+	room.Mutex.Unlock()
+
+	msg := Message{
+		Type: "users_list",
+		Text: strings.Join(users, ", "),
+	}
+
+	for _, client := range clients {
+		select {
+		case client.Send <- msg:
+		default:
+		}
+	}
 }
 
 func defaultColorForNick(nick string) string {
