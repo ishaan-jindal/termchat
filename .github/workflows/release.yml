@@ -44,6 +44,10 @@ jobs:
             arch: arm64
             ext: ".exe"
 
+          - os: android
+            arch: arm64
+            ext: ""
+
           ### Legacy Systems ###
           - os: linux
             arch: 386
@@ -63,6 +67,7 @@ jobs:
         run: |
           mkdir -p dist
 
+          CGO_ENABLED=0 \
           GOOS=${{ matrix.os }} \
           GOARCH=${{ matrix.arch }} \
           go build \

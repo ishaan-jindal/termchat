@@ -7,9 +7,16 @@ WS_URL="{{.WsURL}}"
 OS=$(uname -s)
 ARCH=$(uname -m)
 
+# Detect Termux / Android
+if [ -n "$TERMUX_VERSION" ]; then
+    PLATFORM="android"
+fi
+
 case "$OS" in
     Linux)
-        PLATFORM="linux"
+        if [ -z "$PLATFORM" ]; then
+            PLATFORM="linux"
+        fi
         ;;
 
     Darwin)
