@@ -1,20 +1,22 @@
 services:
 
   websocket:
-    build:
-      context: .
-      dockerfile: Dockerfile.server
+    image: ghcr.io/YOUR_USERNAME/termchat/termchat-websocket:v0.1.0
 
     container_name: termchat-websocket
+
+    env_file:
+      - .env
 
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+    image: ghcr.io/YOUR_USERNAME/termchat/termchat-api:v0.1.0
 
     container_name: termchat-api
+
+    env_file:
+      - .env
 
     restart: unless-stopped
 

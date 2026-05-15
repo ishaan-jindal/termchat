@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/joho/godotenv"
 )
 
 var (
@@ -17,11 +16,6 @@ var (
 )
 
 func main() {
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Println("no .env file found")
-	}
-
 	apiPort := os.Getenv("API_PORT")
 
 	publicAPIURL = os.Getenv("PUBLIC_API_URL")
@@ -43,7 +37,7 @@ func main() {
 
 	log.Println("api server running on", addr)
 
-	err = http.ListenAndServe(addr, r)
+	err := http.ListenAndServe(addr, r)
 	if err != nil {
 		log.Fatal(err)
 	}
