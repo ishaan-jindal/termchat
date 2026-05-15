@@ -105,33 +105,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case IncomingMessage:
 		switch msg.Type {
 
-		case "system":
-			formatted := systemStyle.Render("[system] " + msg.Text)
-			if m.viewport.Width > 0 {
-				if runtime.GOARCH != "386" {
-					formatted = wordwrap.String(formatted, m.viewport.Width)
-				}
-			}
-			m.messages = append(m.messages, formatted)
-
-		case "message":
-			style := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(msg.Color)).
-				Bold(true)
-			nick := style.Render(msg.Nick)
-			formatted := nick + ": " + msg.Text
-			if m.viewport.Width > 0 {
-				if runtime.GOARCH != "386" {
-					formatted = wordwrap.String(formatted, m.viewport.Width)
-				}
-			}
-			m.messages = append(m.messages, formatted)
+		case "system", "message":
+			appendFormattedMessage(&m, Message(msg))
 
 		case "users_list":
 			m.messages = append(
 				m.messages,
 				systemStyle.Render("Online: "+msg.Text),
 			)
+
+		case "history":
+			for _, historyMsg := range msg.Messages {
+				appendFormattedMessage(&m, historyMsg)
+			}
 		}
 
 		atBottom := m.viewport.AtBottom()
@@ -190,6 +176,44 @@ func (m Model) View() string {
 		Width(m.width - 2).
 		Height(m.height - 2).
 		Render(ui)
+}
+
+func appendFormattedMessage(m *Model, msg Message) {
+	switch msg.Type {
+
+	case "system":
+		plain := "[system] " + msg.Text
+
+		if m.viewport.Width > 0 && runtime.GOARCH != "386" {
+			plain = wordwrap.String(plain, m.viewport.Width)
+		}
+
+		formatted := systemStyle.Render(plain)
+
+		m.messages = append(m.messages, formatted)
+
+	case "message":
+		plain := msg.Nick + ": " + msg.Text
+
+		if m.viewport.Width > 0 && runtime.GOARCH != "386" {
+			plain = wordwrap.String(plain, m.viewport.Width)
+		}
+
+		style := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(msg.Color)).
+			Bold(true)
+
+		nick := style.Render(msg.Nick)
+
+		formatted := strings.Replace(
+			plain,
+			msg.Nick,
+			nick,
+			1,
+		)
+
+		m.messages = append(m.messages, formatted)
+	}
 }
 
 func handleCommand(m *Model, input string) bool {

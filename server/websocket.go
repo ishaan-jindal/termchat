@@ -3,8 +3,10 @@ package main
 import (
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gorilla/websocket"
 )
@@ -19,6 +21,13 @@ const (
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
 )
+
+const (
+	maxMessageLength = 500
+	maxNickLength    = 32
+)
+
+const maxHistoryMessages = 30
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -54,7 +63,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client.Nickname = joinMsg.Nick
+	client.Nickname = sanitizeInput(joinMsg.Nick)
+	if client.Nickname == "" {
+		client.Nickname = "anonymous"
+	}
+	if len(client.Nickname) > maxNickLength {
+		client.Nickname = client.Nickname[:maxNickLength]
+	}
 	client.Color = defaultColorForNick(client.Nickname)
 	client.RoomID = joinMsg.Room
 
@@ -71,12 +86,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	room.Mutex.Lock()
 	room.Clients[client] = true
+	history := make([]Message, len(room.History))
+	copy(history, room.History)
 	room.Mutex.Unlock()
 
 	log.Printf("%s joined room %s\n", client.Nickname, client.RoomID)
 
 	// Start writer FIRST
 	go writePump(client)
+
+	client.Send <- Message{
+		Type:     "history",
+		Messages: history,
+	}
 
 	// Broadcast join event
 	broadcastToRoom(client.RoomID, Message{
@@ -100,10 +122,27 @@ func readPump(client *Client) {
 			return
 		}
 
+		msg.Text = sanitizeInput(msg.Text)
+		msg.NewNick = sanitizeInput(msg.NewNick)
+
+		if len(msg.Text) > maxMessageLength {
+			msg.Text = msg.Text[:maxMessageLength]
+		}
+
+		if len(msg.NewNick) > maxNickLength {
+			msg.NewNick = msg.NewNick[:maxNickLength]
+		}
+
 		if msg.Type == "nick" {
 			oldNick := client.Nickname
 
-			client.Nickname = msg.NewNick
+			client.Nickname = sanitizeInput(msg.NewNick)
+			if len(client.Nickname) > maxNickLength {
+				client.Nickname = client.Nickname[:maxNickLength]
+			}
+			if client.Nickname == "" {
+				client.Nickname = "anonymous"
+			}
 			client.Color = defaultColorForNick(client.Nickname)
 
 			broadcastToRoom(client.RoomID, Message{
@@ -136,6 +175,9 @@ func readPump(client *Client) {
 		}
 
 		if msg.Type == "color" {
+			if !isValidHexColor(msg.Color) {
+				continue
+			}
 			client.Color = msg.Color
 
 			client.Send <- Message{
@@ -143,6 +185,10 @@ func readPump(client *Client) {
 				Text: "Color updated to " + client.Color,
 			}
 
+			continue
+		}
+
+		if msg.Type == "message" && msg.Text == "" {
 			continue
 		}
 
@@ -195,6 +241,14 @@ func broadcastToRoom(roomID string, msg Message) {
 	}
 
 	room.Mutex.Lock()
+
+	if msg.Type == "message" || msg.Type == "system" {
+		room.History = append(room.History, msg)
+
+		if len(room.History) > maxHistoryMessages {
+			room.History = room.History[len(room.History)-maxHistoryMessages:]
+		}
+	}
 
 	clients := make([]*Client, 0, len(room.Clients))
 
@@ -269,4 +323,27 @@ func defaultColorForNick(nick string) string {
 	}
 
 	return colors[hash%len(colors)]
+}
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func sanitizeInput(input string) string {
+	// remove ANSI escape sequences
+	input = ansiRegex.ReplaceAllString(input, "")
+
+	// remove control characters
+	input = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+
+		return r
+	}, input)
+
+	return strings.TrimSpace(input)
+}
+
+func isValidHexColor(color string) bool {
+	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	return re.MatchString(color)
 }
