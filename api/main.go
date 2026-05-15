@@ -130,6 +130,11 @@ case "$ARCH" in
     x86_64)
         ARCH="amd64"
         ;;
+
+	i386|i686)
+		ARCH="386"
+		;;
+
     arm64|aarch64)
         ARCH="arm64"
         ;;

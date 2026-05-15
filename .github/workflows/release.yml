@@ -44,6 +44,11 @@ jobs:
             arch: arm64
             ext: ".exe"
 
+          ### Legacy Systems ###
+          - os: linux
+            arch: 386
+            ext: ""
+
     steps:
 
       - name: Checkout
