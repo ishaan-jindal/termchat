@@ -25,13 +25,13 @@ func main() {
 
 	r := chi.NewRouter()
 
-	// Linux/macOS bootstrap
-	r.Get("/", createRoomHandler)
-	r.Get("/{room}", joinRoomHandler)
-
 	// Windows bootstrap
 	r.Get("/win", windowsCreateRoomHandler)
 	r.Get("/win/{room}", windowsJoinHandler)
+
+	// Linux/macOS bootstrap
+	r.Get("/", createRoomHandler)
+	r.Get("/{room}", joinRoomHandler)
 
 	// Binary downloads
 	r.Get("/bin/{binary}", binaryHandler)
