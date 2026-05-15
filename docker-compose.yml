@@ -42,12 +42,15 @@ services:
     restart: unless-stopped
 
   watchtower:
-    image: containrrr/watchtower
+    image: containrrr/watchtower:latest
 
     container_name: termchat-watchtower
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      - DOCKER_API_VERSION=1.41
 
     command: --interval 30
 
