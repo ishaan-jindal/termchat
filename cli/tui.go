@@ -53,6 +53,9 @@ type Model struct {
 	width    int
 	height   int
 
+	compactMode bool
+	showSidebar bool
+
 	history      []string
 	historyIndex int
 }
@@ -184,12 +187,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		sidebarWidth := 22
+		m.compactMode = msg.Width < 100
+		m.showSidebar = msg.Width >= 70
 
-		m.viewport.Width = msg.Width - sidebarWidth - 10
-		m.viewport.Height = msg.Height - 10
+		sidebarWidth := 0
 
-		m.input.Width = msg.Width - 10
+		if m.showSidebar {
+			if m.compactMode {
+				sidebarWidth = 16
+			} else {
+				sidebarWidth = 22
+			}
+		}
+
+		m.viewport.Width = max(msg.Width-sidebarWidth-10, 20)
+
+		m.viewport.Height = max(msg.Height-10, 5)
+
+		m.input.Width = max(msg.Width-10, 10)
 
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 
@@ -205,15 +220,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	messagesPanel := panelStyle.
-		Width(m.viewport.Width).
+		Width(m.viewport.Width + 4).
 		Height(m.viewport.Height).
 		Render(m.viewport.View())
 
-	content := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		messagesPanel,
-		renderUsers(m),
-	)
+	var content string
+
+	if m.showSidebar {
+		content = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			messagesPanel,
+			renderUsers(m),
+		)
+	} else {
+		content = messagesPanel
+	}
 
 	input := panelStyle.
 		Width(m.width - 6).
@@ -247,15 +268,29 @@ func renderUsers(m Model) string {
 	header := usersHeaderStyle.Render("Users")
 
 	lines = append(lines, header)
-	lines = append(lines, strings.Repeat("─", 18))
+	lines = append(lines, strings.Repeat("─", 12))
 	lines = append(lines, "")
 
-	lines = append(lines, m.users...)
+	for _, user := range m.users {
+		if m.compactMode {
+			if len(user) > 10 {
+				user = user[:10]
+			}
+		}
+
+		lines = append(lines, user)
+	}
 
 	content := strings.Join(lines, "\n")
 
+	width := 20
+
+	if m.compactMode {
+		width = 14
+	}
+
 	return panelStyle.
-		Width(24).
+		Width(width).
 		Height(m.viewport.Height).
 		Render(content)
 }
