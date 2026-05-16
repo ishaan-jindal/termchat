@@ -1,57 +1,92 @@
 # termchat
 
-Anonymous ephemeral terminal chatrooms.
+Minimal anonymous terminal chatrooms.
 
-Open terminal → paste one command → instantly chat.
+Open a terminal → paste one command → instantly chat.
+
+Built for quick collaboration, debugging sessions, pair programming, temporary communities, and internet-native realtime chat.
 
 ---
 
 # Features
 
-* Anonymous realtime chat rooms
-* Terminal-native TUI
-* Cross-platform bootstrap system
+* Anonymous ephemeral chat rooms
+* Zero account creation
+* Realtime WebSocket messaging
+* Modern terminal-native TUI
+* Sidebar user list
+* Mention highlighting (`@user`)
+* Cross-platform bootstrap installer
 * Linux / macOS / Windows / Android (Termux) support
-* Ephemeral rooms
+* Auto-generated room IDs
 * Nickname colors
-* Slash commands
+* Responsive terminal layout
+* GitHub Releases binary delivery
 * Dockerized deployment
 * GitHub Actions CI/CD
-* GHCR container deployment
+* GHCR container publishing
+* Lightweight single-binary CLI
 
 ---
 
-# Demo
+# UI Preview
+
+The latest TUI includes:
+
+* Dedicated users sidebar
+* Better spacing and layout
+* Cleaner message rendering
+* Improved command hints
+* Status footer
+* Mention highlighting
+* Better input handling
+* Adaptive resizing
+
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│ [system] Alice joined the room                                             │
+│ Alice: Hey @Bob                                                            │
+│ Bob: sup                                                                   │
+│                                                                            │
+│ Commands: /help /clear /nick /color /quit                                  │
+├────────────────────────────────────────────────────────────────────────────┤
+│ > Type a message...                                                        │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Quick Start
 
 ## Linux / macOS
 
-Create room:
+Create a room:
 
 ```bash
-curl https://localhost | bash
+curl -fsSL https://termchat.sacred99.online | bash
 ```
 
-Join room:
+Join a room:
 
 ```bash
-curl https://localhost/FROG | bash
+curl -fsSL https://termchat.sacred99.online/7WHB | bash
 ```
 
 ---
 
 ## Windows (PowerShell)
 
-Create room:
+Create a room:
 
 ```powershell
-irm https://localhost/win -OutFile termchat-bootstrap.ps1
+irm https://termchat.sacred99.online/win -OutFile termchat-bootstrap.ps1
 .\termchat-bootstrap.ps1
 ```
 
-Join room:
+Join a room:
 
 ```powershell
-irm https://localhost/win/FROG -OutFile termchat-bootstrap.ps1
+irm https://termchat.sacred99.online/win/7WHB -OutFile termchat-bootstrap.ps1
 .\termchat-bootstrap.ps1
 ```
 
@@ -66,232 +101,127 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## Android / Termux
 
 ```bash
-curl https://localhost | bash
+pkg install curl
+curl -fsSL https://termchat.sacred99.online | bash
 ```
 
 ---
 
 # Supported Platforms
 
-| Platform         | Architecture |
-| ---------------- | ------------ |
-| Linux            | amd64        |
-| Linux            | arm64        |
-| Linux            | 386 / i686   |
-| macOS            | amd64        |
-| macOS            | arm64        |
-| Windows          | amd64        |
-| Windows          | arm64        |
-| Android / Termux | arm64        |
+| Platform         | Architectures            |
+| ---------------- | ------------------------ |
+| Linux            | amd64, arm64, 386 / i686 |
+| macOS            | amd64, arm64             |
+| Windows          | amd64, arm64             |
+| Android / Termux | arm64                    |
 
 ---
 
-# Screenshots
+# Commands
+
+| Command       | Description             |
+| ------------- | ----------------------- |
+| `/help`       | Show available commands |
+| `/clear`      | Clear chat history      |
+| `/nick NAME`  | Change nickname         |
+| `/color #HEX` | Change nickname color   |
+| `/quit`       | Exit room               |
+
+Notes:
+
+* The online users panel is built directly into the UI.
+* `/users` command has been removed.
+* Mentions highlight automatically when using `@nickname`.
+
+---
+
+# Room System
+
+termchat rooms are:
+
+* Temporary
+* Memory-only
+* Automatically created on join
+* Deleted when empty
+* Shareable via URL-style room codes
+
+Example:
 
 ```text
-┌ Room: FROG ──────────────────────┐
-│ alice: hello                    │
-│ bob: hi                         │
-│                                  │
-├──────────────────────────────────┤
-│ >                                │
-└──────────────────────────────────┘
+https://termchat.sacred99.online/7WHB
 ```
 
 ---
 
-# Slash Commands
+# Security
 
-| Command       | Description           |
-| ------------- | --------------------- |
-| `/help`       | Show help             |
-| `/clear`      | Clear chat            |
-| `/users`      | Show online users     |
-| `/nick NAME`  | Change nickname       |
-| `/color #HEX` | Change nickname color |
-| `/quit`       | Exit                  |
-
----
-
-# Architecture
-
-```text
-GitHub Actions
-    ↓
-GHCR + GitHub Releases
-    ↓
-API server
-    ↓
-Bootstrap scripts
-    ↓
-CLI binaries
-    ↓
-WebSocket server
-```
-
----
-
-# Project Structure
-
-```text
-termchat/
-├── api/
-├── cli/
-├── server/
-├── scripts/
-│   ├── bootstrap.sh
-│   └── bootstrap.ps1
-├── caddy/
-├── .github/workflows/
-├── Dockerfile.api
-├── Dockerfile.server
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
-
----
-
-# Local Development
-
-## Requirements
-
-* Go 1.26+
-* Docker
-* Docker Compose
-
----
-
-# Run WebSocket Server
-
-```bash
-cd server
-go run .
-```
-
----
-
-# Run API Server
-
-```bash
-cd api
-go run .
-```
-
----
-
-# Run CLI
-
-```bash
-cd cli
-go run .
-```
-
----
-
-# Environment Variables
-
-Example `.env`:
-
-```env
-WS_HOST=0.0.0.0
-WS_PORT=8080
-
-API_PORT=3000
-
-PUBLIC_API_URL=https://localhost
-PUBLIC_WS_URL=wss://localhost/ws
-
-GITHUB_REPO=YOUR_USERNAME/termchat
-RELEASE_VERSION=v0.1.0
-```
-
----
-
-# Docker Deployment
-
-## Start Stack
-
-```bash
-docker compose up -d
-```
-
----
-
-## Pull Updated Images
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
----
-
-# Caddy
-
-Example `Caddyfile`:
-
-```text
-localhost {
-
-    reverse_proxy /ws* websocket:8080
-
-    reverse_proxy api:3000
-}
-```
-
----
-
-# CI/CD
-
-GitHub Actions automatically:
-
-* Builds CLI binaries
-* Publishes GitHub Release assets
-* Builds Docker images
-* Pushes images to GHCR
-
-Triggered via tags:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
----
-
-# Security Notes
-
-Current implementation includes:
+Current protections include:
 
 * WebSocket keepalive
-* Buffered message queues
+* Buffered outbound queues
+* Graceful disconnect handling
+* Inactive connection cleanup
 * Cross-platform bootstrap detection
-
-Still recommended before public exposure:
-
+* Automatic binary fetching
 * ANSI escape sanitization
-* Message length limits
-* Rate limiting
+* Message length enforcement
+
+Recommended future hardening:
+
+* Global + per-room rate limits
+* Join throttling
 * Room validation hardening
+* Profanity / spam filtering
+* Abuse detection
+
+---
+
+# Roadmap
+
+Planned ideas:
+
+* File transfer
+* Message reactions
+* Terminal notifications
+* Persistent optional identities
+* Invite-only rooms
+* End-to-end encryption experiments
+* Self-hosted one-command deployment
+* Rich markdown rendering
+* Multi-room support
 
 ---
 
 # Technologies
 
 * Go
-* Gorilla WebSocket
 * Bubble Tea
 * Lip Gloss
+* Gorilla WebSocket
 * Chi
 * Docker
 * Caddy
 * GitHub Actions
-* GHCR
+* GitHub Container Registry
+
+---
+
+# Philosophy
+
+termchat is designed to feel:
+
+* Instant
+* Disposable
+* Lightweight
+* Terminal-first
+* Frictionless
+
+No signup.
+No browser tabs.
 
 ---
 
 # License
 
 MIT
-
