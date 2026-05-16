@@ -53,6 +53,8 @@ type Model struct {
 	width    int
 	height   int
 
+	autoScroll bool
+
 	compactMode bool
 	showSidebar bool
 
@@ -79,6 +81,7 @@ func NewModel(conn *Connection, nick string, room string) Model {
 		viewport:     vp,
 		history:      []string{},
 		historyIndex: 0,
+		autoScroll:   true,
 	}
 }
 
@@ -90,7 +93,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
-
 		switch msg.String() {
 
 		case "ctrl+c":
@@ -100,6 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
+			m.autoScroll = m.viewport.AtBottom()
 			return m, cmd
 
 		case "up":
@@ -153,6 +156,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, cmd
 
+	case tea.MouseMsg:
+		switch msg.Button {
+
+		case tea.MouseButtonWheelUp:
+			m.viewport.ScrollUp(3)
+
+		case tea.MouseButtonWheelDown:
+			m.viewport.ScrollDown(3)
+		}
+
+		m.autoScroll = m.viewport.AtBottom()
+
+		return m, nil
+
 	case IncomingMessage:
 
 		switch msg.Type {
@@ -173,11 +190,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		atBottom := m.viewport.AtBottom()
+		wasAtBottom := m.autoScroll || m.viewport.AtBottom()
 
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 
-		if atBottom {
+		if wasAtBottom {
 			m.viewport.GotoBottom()
 		}
 
@@ -219,6 +236,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	scrollInfo := ""
+
+	if !m.viewport.AtTop() {
+		scrollInfo += " ↑"
+	}
+
+	if !m.viewport.AtBottom() {
+		scrollInfo += " ↓"
+	}
+
 	messagesPanel := panelStyle.
 		Width(m.viewport.Width + 4).
 		Height(m.viewport.Height).
@@ -245,9 +272,10 @@ func (m Model) View() string {
 		Render(
 			statusStyle.Render(
 				fmt.Sprintf(
-					"Connected • Room %s • %d users",
+					"Connected • Room %s • %d users%s",
 					m.room,
 					len(m.users),
+					scrollInfo,
 				),
 			),
 		)

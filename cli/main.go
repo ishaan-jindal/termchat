@@ -47,7 +47,10 @@ func main() {
 
 	model := NewModel(conn, nick, room)
 
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(
+		model,
+		tea.WithMouseCellMotion(),
+	)
 
 	_, err = p.Run()
 	if err != nil {
