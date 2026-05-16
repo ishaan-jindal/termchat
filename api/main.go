@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"text/template"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -25,6 +26,8 @@ func main() {
 	publicAPIURL = os.Getenv("PUBLIC_API_URL")
 	publicWSURL = os.Getenv("PUBLIC_WS_URL")
 	latestCLIVersion = fetchLatestCLIVersion()
+
+	go refreshCLIVersionLoop()
 
 	r := chi.NewRouter()
 
@@ -202,4 +205,19 @@ func fetchLatestCLIVersion() string {
 	}
 
 	return r.TagName
+}
+
+func refreshCLIVersionLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+
+	defer ticker.Stop()
+
+	for range ticker.C {
+		version := fetchLatestCLIVersion()
+
+		if version != "" {
+			latestCLIVersion = version
+			log.Println("updated latest cli version:", version)
+		}
+	}
 }
