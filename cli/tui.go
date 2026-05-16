@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -42,7 +42,7 @@ type Model struct {
 	conn *Connection
 
 	messages []string
-	input    textinput.Model
+	input    textarea.Model
 
 	nick      string
 	room      string
@@ -63,10 +63,14 @@ type Model struct {
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
-	ti := textinput.New()
+	ti := textarea.New()
 
 	ti.Placeholder = "Type a message..."
 	ti.Focus()
+
+	ti.ShowLineNumbers = false
+	ti.SetHeight(3)
+	ti.KeyMap.InsertNewline.SetEnabled(false)
 
 	vp := viewport.New(0, 0)
 
@@ -106,36 +110,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case "up":
-			if len(m.history) > 0 && m.historyIndex > 0 {
-				m.historyIndex--
-				m.input.SetValue(m.history[m.historyIndex])
+			if m.input.Line() == 0 {
+				if len(m.history) > 0 && m.historyIndex > 0 {
+					m.historyIndex--
+					m.input.SetValue(m.history[m.historyIndex])
+				}
+				return m, nil
 			}
-			return m, nil
 
 		case "down":
-			if len(m.history) > 0 && m.historyIndex < len(m.history)-1 {
-				m.historyIndex++
-				m.input.SetValue(m.history[m.historyIndex])
-			} else {
-				m.historyIndex = len(m.history)
-				m.input.SetValue("")
+			totalLines := strings.Count(m.input.Value(), "\n") + 1
+			if m.input.Line() >= totalLines-1 {
+				if len(m.history) > 0 && m.historyIndex < len(m.history)-1 {
+					m.historyIndex++
+					m.input.SetValue(m.history[m.historyIndex])
+				} else {
+					m.historyIndex = len(m.history)
+					m.input.SetValue("")
+				}
+				return m, nil
 			}
+
+		case "alt+enter":
+			m.input.InsertRune('\n')
 			return m, nil
 
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
-
 			if strings.HasPrefix(text, "/") {
 				handled, quit := handleCommand(&m, text)
 				if handled {
-					m.input.SetValue("")
+					m.input.Reset()
 					if quit {
 						return m, tea.Quit
 					}
 					return m, nil
 				}
 			}
-
 			if text != "" {
 				m.history = append(m.history, text)
 				m.historyIndex = len(m.history)
@@ -144,9 +155,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Type: "message",
 					Text: text,
 				})
-
-				m.input.SetValue("")
+				m.input.Reset()
 			}
+			return m, nil
 		}
 
 		var cmd tea.Cmd
@@ -220,7 +231,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.viewport.Height = max(msg.Height-10, 5)
 
-		m.input.Width = max(msg.Width-10, 10)
+		inputHeight := textareaHeight(m.input)
+		m.viewport.Height = max(
+			msg.Height-inputHeight-7,
+			5,
+		)
+
+		inputWidth := max(m.width-14, 20)
+		m.input.SetWidth(inputWidth)
 
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 
@@ -230,6 +248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	m.input, cmd = m.input.Update(msg)
+	m.input.SetHeight(textareaHeight(m.input))
 
 	return m, cmd
 }
@@ -264,7 +283,7 @@ func (m Model) View() string {
 
 	input := panelStyle.
 		Width(m.width - 6).
-		Render("> " + m.input.View())
+		Render(m.input.View())
 
 	status := panelStyle.
 		Width(m.width - 6).
@@ -342,15 +361,39 @@ func appendFormattedMessage(m *Model, msg Message) {
 			"@"+strings.ToLower(m.nick),
 		)
 
-		var formatted string
+		style := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(msg.Color)).
+			Bold(true)
+
+		nick := style.Render(msg.Nick)
+		prefix := msg.Nick + ": "
+		availableWidth := max(m.viewport.Width-len(prefix), 10)
+		wrapped := msg.Text
+
+		if runtime.GOARCH != "386" {
+			wrapped = wordwrap.String(msg.Text, availableWidth)
+		}
+
+		lines := strings.Split(wrapped, "\n")
+
+		for i := range lines {
+			if i == 0 {
+				lines[i] = prefix + lines[i]
+			} else {
+				lines[i] = strings.Repeat(" ", len(prefix)) + lines[i]
+			}
+		}
+
+		formatted := strings.Join(lines, "\n")
+
+		formatted = strings.Replace(
+			formatted,
+			msg.Nick,
+			nick,
+			1,
+		)
 
 		if mentioned {
-			formatted = msg.Nick + ": " + msg.Text
-
-			if m.viewport.Width > 0 && runtime.GOARCH != "386" {
-				formatted = wordwrap.String(formatted, m.viewport.Width)
-			}
-
 			formatted = lipgloss.NewStyle().
 				Background(lipgloss.Color("11")).
 				Foreground(lipgloss.Color("0")).
@@ -358,19 +401,6 @@ func appendFormattedMessage(m *Model, msg Message) {
 				Render(formatted)
 
 			print("\a")
-
-		} else {
-			style := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(msg.Color)).
-				Bold(true)
-
-			nick := style.Render(msg.Nick)
-
-			formatted = nick + ": " + msg.Text
-
-			if m.viewport.Width > 0 && runtime.GOARCH != "386" {
-				formatted = wordwrap.String(formatted, m.viewport.Width)
-			}
 		}
 
 		m.messages = append(m.messages, formatted)
@@ -459,4 +489,15 @@ func clearTerminal() {
 func isValidHexColor(color string) bool {
 	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	return re.MatchString(color)
+}
+
+func textareaHeight(input textarea.Model) int {
+	lines := strings.Count(input.Value(), "\n") + 1
+	if lines < 3 {
+		return 3
+	}
+	if lines > 8 {
+		return 8
+	}
+	return lines
 }
