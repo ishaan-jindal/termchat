@@ -69,6 +69,7 @@ jobs:
           GOOS=${{ matrix.os }} \
           GOARCH=${{ matrix.arch }} \
           go build \
+          -ldflags "-X main.Version=${{ github.ref_name }}" \
           -o dist/termchat-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} \
           ./cli
 

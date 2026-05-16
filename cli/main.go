@@ -11,17 +11,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+var Version = "dev"
+
 func main() {
 	reader := getInputReader()
 
-	fmt.Print("Nickname: ")
-	nick, _ := reader.ReadString('\n')
-	nick = strings.TrimSpace(nick)
-
+	versionFlag := flag.Bool("version", false, "show version")
 	roomFlag := flag.String("room", "", "room code")
 	serverFlag := flag.String("server", "ws://localhost:8080/ws", "websocket server")
 
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Println("termchat", Version)
+		return
+	}
+
+	fmt.Print("Nickname: ")
+	nick, _ := reader.ReadString('\n')
+	nick = strings.TrimSpace(nick)
 
 	room := *roomFlag
 
