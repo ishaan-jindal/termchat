@@ -20,14 +20,14 @@ var upgrader = websocket.Upgrader{
 const (
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
-)
 
-const (
-	maxMessageLength = 500
-	maxNickLength    = 32
-)
+	maxMessageLength   = 500
+	maxNickLength      = 32
+	maxHistoryMessages = 30
 
-const maxHistoryMessages = 30
+	maxMessagesPerSecond = 5
+	idleTimeout          = 30 * time.Minute
+)
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -44,8 +44,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	})
 
 	client := &Client{
-		Conn: conn,
-		Send: make(chan Message, 32),
+		Conn:         conn,
+		Send:         make(chan Message, 32),
+		LastActivity: time.Now(),
 	}
 
 	// First message MUST be join message
@@ -124,6 +125,24 @@ func readPump(client *Client) {
 			log.Println(err)
 			return
 		}
+
+		client.LastActivity = time.Now()
+
+		now := time.Now()
+		filtered := []time.Time{}
+		for _, t := range client.MessageTimestamps {
+			if now.Sub(t) < time.Second {
+				filtered = append(filtered, t)
+			}
+		}
+		client.MessageTimestamps = filtered
+		if len(client.MessageTimestamps) >= 5 {
+			continue
+		}
+		client.MessageTimestamps = append(
+			client.MessageTimestamps,
+			now,
+		)
 
 		msg.Text = sanitizeInput(msg.Text)
 		msg.NewNick = sanitizeInput(msg.NewNick)
@@ -390,4 +409,36 @@ func sanitizeInput(input string) string {
 func isValidHexColor(color string) bool {
 	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	return re.MatchString(color)
+}
+
+func cleanupIdleClients() {
+	ticker := time.NewTicker(1 * time.Minute)
+
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, room := range rooms {
+
+			room.Mutex.Lock()
+
+			clients := make([]*Client, 0, len(room.Clients))
+
+			for client := range room.Clients {
+				clients = append(clients, client)
+			}
+
+			room.Mutex.Unlock()
+
+			for _, client := range clients {
+				if time.Since(client.LastActivity) > idleTimeout {
+					log.Printf(
+						"disconnecting idle client %s",
+						client.Nickname,
+					)
+
+					client.Conn.Close()
+				}
+			}
+		}
+	}
 }

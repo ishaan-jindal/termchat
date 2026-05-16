@@ -1,6 +1,10 @@
 package main
 
-import "github.com/gorilla/websocket"
+import (
+	"time"
+
+	"github.com/gorilla/websocket"
+)
 
 type Client struct {
 	Conn     *websocket.Conn
@@ -8,4 +12,7 @@ type Client struct {
 	RoomID   string
 	Send     chan Message
 	Color    string
+
+	LastActivity      time.Time
+	MessageTimestamps []time.Time
 }
