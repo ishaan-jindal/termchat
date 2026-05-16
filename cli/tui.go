@@ -126,15 +126,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			text := strings.TrimSpace(m.input.Value())
 
 			if strings.HasPrefix(text, "/") {
-				ok := handleCommand(&m, text)
-
-				m.input.SetValue("")
-
-				if !ok {
-					return m, tea.Quit
+				handled, quit := handleCommand(&m, text)
+				if handled {
+					m.input.SetValue("")
+					if quit {
+						return m, tea.Quit
+					}
+					return m, nil
 				}
-
-				return m, nil
 			}
 
 			if text != "" {
@@ -378,7 +377,7 @@ func appendFormattedMessage(m *Model, msg Message) {
 	}
 }
 
-func handleCommand(m *Model, input string) bool {
+func handleCommand(m *Model, input string) (handled bool, quit bool) {
 	parts := strings.Split(input, " ")
 
 	cmd := parts[0]
@@ -388,11 +387,11 @@ func handleCommand(m *Model, input string) bool {
 	case "/clear":
 		m.messages = []string{}
 		m.viewport.SetContent("")
-		return true
+		return true, false
 
 	case "/quit":
 		clearTerminal()
-		return false
+		return true, true
 
 	case "/help":
 		m.messages = append(
@@ -405,11 +404,11 @@ func handleCommand(m *Model, input string) bool {
 		m.viewport.SetContent(strings.Join(m.messages, "\n"))
 		m.viewport.GotoBottom()
 
-		return true
+		return true, false
 
 	case "/nick":
 		if len(parts) < 2 {
-			return true
+			return true, false
 		}
 
 		newNick := parts[1]
@@ -421,11 +420,11 @@ func handleCommand(m *Model, input string) bool {
 
 		m.nick = newNick
 
-		return true
+		return true, false
 
 	case "/color":
 		if len(parts) < 2 {
-			return true
+			return true, false
 		}
 
 		color := parts[1]
@@ -439,7 +438,7 @@ func handleCommand(m *Model, input string) bool {
 			m.viewport.SetContent(strings.Join(m.messages, "\n"))
 			m.viewport.GotoBottom()
 
-			return true
+			return true, false
 		}
 
 		m.conn.conn.WriteJSON(Message{
@@ -447,10 +446,10 @@ func handleCommand(m *Model, input string) bool {
 			Color: color,
 		})
 
-		return true
+		return true, false
 	}
 
-	return true
+	return false, false
 }
 
 func clearTerminal() {
