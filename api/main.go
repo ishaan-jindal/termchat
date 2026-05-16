@@ -31,6 +31,8 @@ func main() {
 
 	r := chi.NewRouter()
 
+	r.Get("/api/new", newRoomAPIHandler)
+
 	// Windows bootstrap
 	r.Get("/win", windowsCreateRoomHandler)
 	r.Get("/win/{room}", windowsJoinHandler)
@@ -220,4 +222,10 @@ func refreshCLIVersionLoop() {
 			log.Println("updated latest cli version:", version)
 		}
 	}
+}
+
+func newRoomAPIHandler(w http.ResponseWriter, r *http.Request) {
+	room := generateRoomCode()
+
+	w.Write([]byte(room))
 }

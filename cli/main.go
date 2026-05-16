@@ -4,21 +4,28 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-var Version = "dev"
+var (
+	Version    = "dev"
+	DefaultAPI = "https://localhost"
+	DefaultWS  = "ws://localhost:8080/ws"
+)
 
 func main() {
 	reader := getInputReader()
 
 	versionFlag := flag.Bool("version", false, "show version")
 	roomFlag := flag.String("room", "", "room code")
-	serverFlag := flag.String("server", "ws://localhost:8080/ws", "websocket server")
+	serverFlag := flag.String("server", DefaultWS, "websocket server")
+	apiFlag := flag.String("api", DefaultAPI, "api server")
 
 	flag.Parse()
 
@@ -31,12 +38,16 @@ func main() {
 	nick, _ := reader.ReadString('\n')
 	nick = strings.TrimSpace(nick)
 
-	room := *roomFlag
+	var room string
+
+	room = *roomFlag
+	if flag.NArg() > 0 {
+		room = flag.Arg(0)
+	}
 
 	if room == "" {
-		fmt.Print("Room: ")
-		roomInput, _ := reader.ReadString('\n')
-		room = strings.TrimSpace(roomInput)
+		room = fetchNewRoom(*apiFlag)
+		fmt.Println("Created Room:", room)
 	}
 
 	conn, err := connectWebSocket(*serverFlag)
@@ -75,4 +86,19 @@ func getInputReader() *bufio.Reader {
 	}
 
 	return bufio.NewReader(os.Stdin)
+}
+
+func fetchNewRoom(apiURL string) string {
+	resp, err := http.Get(apiURL + "/api/new")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return strings.TrimSpace(string(body))
 }
