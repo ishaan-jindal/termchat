@@ -16,7 +16,6 @@ import (
 
 var (
 	publicAPIURL     string
-	publicWSURL      string
 	latestCLIVersion string
 )
 
@@ -24,7 +23,6 @@ func main() {
 	apiPort := os.Getenv("API_PORT")
 
 	publicAPIURL = os.Getenv("PUBLIC_API_URL")
-	publicWSURL = os.Getenv("PUBLIC_WS_URL")
 	latestCLIVersion = fetchLatestCLIVersion()
 
 	go refreshCLIVersionLoop()
@@ -94,7 +92,6 @@ func renderBootstrapScript(w http.ResponseWriter, room string) {
 	data := map[string]string{
 		"Room":    room,
 		"ApiURL":  publicAPIURL,
-		"WsURL":   publicWSURL,
 		"Version": latestCLIVersion,
 	}
 
@@ -127,7 +124,6 @@ func renderWindowsBootstrap(w http.ResponseWriter, room string) {
 	data := map[string]string{
 		"Room":    room,
 		"ApiURL":  publicAPIURL,
-		"WsURL":   publicWSURL,
 		"Version": latestCLIVersion,
 	}
 

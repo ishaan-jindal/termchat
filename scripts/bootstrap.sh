@@ -2,7 +2,6 @@
 
 ROOM="{{.Room}}"
 API_URL="{{.ApiURL}}"
-WS_URL="{{.WsURL}}"
 
 OS=$(uname -s)
 ARCH=$(uname -m)
@@ -68,10 +67,10 @@ if [ ! -f "$BINARY_PATH" ] || \
     chmod +x "$BINARY_PATH"
 
     echo "{{.Version}}" > "$VERSION_FILE"
+else
+    echo "Using cached $BINARY..."
 fi
 
 echo "Launching room $ROOM..."
 
-exec "$BINARY_PATH" \
-    --room="$ROOM" \
-    --server="$WS_URL"
+exec "$BINARY_PATH" "$ROOM"

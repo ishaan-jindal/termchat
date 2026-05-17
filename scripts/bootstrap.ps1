@@ -1,7 +1,6 @@
 param(
     [string]$Room = "{{.Room}}",
     [string]$ApiUrl = "{{.ApiURL}}",
-    [string]$WsUrl = "{{.WsURL}}"
 )
 
 $arch = $env:PROCESSOR_ARCHITECTURE
@@ -62,12 +61,14 @@ if ($needsDownload) {
     Set-Content `
         -Path $versionFile `
         -Value "{{.Version}}"
+} else {
+    Write-Host "Using cached $binary..."
 }
 
 Write-Host "Launching room $Room..."
 
 Start-Process `
     -FilePath $binaryPath `
-    -ArgumentList "--room $Room --server $WsUrl" `
+    -ArgumentList "$Room" `
     -NoNewWindow `
     -Wait
