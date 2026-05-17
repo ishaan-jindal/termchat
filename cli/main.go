@@ -20,6 +20,8 @@ var (
 )
 
 func main() {
+	cfg := loadConfig()
+
 	reader := getInputReader()
 
 	versionFlag := flag.Bool("version", false, "show version")
@@ -34,9 +36,22 @@ func main() {
 		return
 	}
 
-	fmt.Print("Nickname: ")
+	if cfg.Nick != "" {
+		fmt.Printf("Nickname [%s]: ", cfg.Nick)
+	} else {
+		fmt.Print("Nickname: ")
+	}
 	nick, _ := reader.ReadString('\n')
 	nick = strings.TrimSpace(nick)
+	if nick == "" {
+		nick = cfg.Nick
+	}
+	if nick == "" {
+		nick = "anonymous"
+	}
+
+	cfg.Nick = nick
+	saveConfig(cfg)
 
 	var room string
 
@@ -62,6 +77,12 @@ func main() {
 	})
 	if err != nil {
 		log.Fatal(err)
+	}
+	if cfg.Color != "" {
+		conn.conn.WriteJSON(Message{
+			Type:  "color",
+			Color: cfg.Color,
+		})
 	}
 
 	model := NewModel(conn, nick, room)

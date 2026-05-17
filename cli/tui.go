@@ -476,6 +476,10 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 			Color: color,
 		})
 
+		cfg := loadConfig()
+		cfg.Color = color
+		saveConfig(cfg)
+
 		return true, false
 	}
 
