@@ -1,6 +1,6 @@
 param(
     [string]$Room = "{{.Room}}",
-    [string]$ApiUrl = "{{.ApiURL}}",
+    [string]$ApiUrl = "{{.ApiURL}}"
 )
 
 $arch = $env:PROCESSOR_ARCHITECTURE
