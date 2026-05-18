@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -33,7 +34,9 @@ var (
 
 	usersHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("10"))
+				Foreground(lipgloss.Color("15")).
+				Background(lipgloss.Color("238")).
+				Padding(0, 1)
 )
 
 type IncomingMessage Message
@@ -46,7 +49,7 @@ type Model struct {
 
 	nick      string
 	room      string
-	users     []string
+	users     []UserInfo
 	connected bool
 
 	viewport viewport.Model
@@ -80,7 +83,7 @@ func NewModel(conn *Connection, nick string, room string) Model {
 		input:        ti,
 		nick:         nick,
 		room:         room,
-		users:        []string{},
+		users:        []UserInfo{},
 		connected:    true,
 		viewport:     vp,
 		history:      []string{},
@@ -188,11 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			appendFormattedMessage(&m, Message(msg))
 
 		case "users_list":
-			if strings.TrimSpace(msg.Text) == "" {
-				m.users = []string{}
-			} else {
-				m.users = strings.Split(msg.Text, ", ")
-			}
+			m.users = msg.Users
 
 		case "history":
 			for _, historyMsg := range msg.Messages {
@@ -311,30 +310,39 @@ func (m Model) View() string {
 func renderUsers(m Model) string {
 	var lines []string
 
-	header := usersHeaderStyle.Render("Users")
-
-	lines = append(lines, header)
-	lines = append(lines, strings.Repeat("─", 12))
-	lines = append(lines, "")
-
-	for _, user := range m.users {
-		if m.compactMode {
-			if len(user) > 10 {
-				user = user[:10]
-			}
-		}
-
-		lines = append(lines, user)
-	}
-
-	content := strings.Join(lines, "\n")
-
 	width := 20
-
 	if m.compactMode {
 		width = 14
 	}
 
+	header := usersHeaderStyle.Width(width - 2).Align(lipgloss.Center).Render("USERS")
+	lines = append(lines, header)
+	lines = append(lines, strings.Repeat("─", width-2))
+	lines = append(lines, "")
+
+	for _, user := range m.users {
+		nick := user.Nick
+		if m.compactMode && len(nick) > 8 {
+			nick = nick[:8]
+		}
+
+		joined := relativeTime(user.JoinedAt)
+
+		coloredNick := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(user.Color)).
+			Bold(true).
+			Render("● " + nick)
+
+		line := fmt.Sprintf(
+			"%-12s %4s",
+			coloredNick,
+			joined,
+		)
+
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
 	return panelStyle.
 		Width(width).
 		Height(m.viewport.Height).
@@ -504,4 +512,17 @@ func textareaHeight(input textarea.Model) int {
 		return 8
 	}
 	return lines
+}
+
+func relativeTime(unix int64) string {
+	d := time.Since(time.Unix(unix, 0))
+
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+
+	return fmt.Sprintf("%dh", int(d.Hours()))
 }
