@@ -204,6 +204,7 @@ func readPump(client *Client) {
 				continue
 			}
 			client.Color = msg.Color
+			broadcastUsersList(client.RoomID)
 
 			client.Send <- Message{
 				Type: "system",
