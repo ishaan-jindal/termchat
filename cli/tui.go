@@ -368,50 +368,40 @@ func appendFormattedMessage(m *Model, msg Message) {
 			strings.ToLower(msg.Text),
 			"@"+strings.ToLower(m.nick),
 		)
-
-		style := lipgloss.NewStyle().
+		nickStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(msg.Color)).
 			Bold(true)
 
-		nick := style.Render(msg.Nick)
 		prefix := msg.Nick + ": "
 		availableWidth := max(m.viewport.Width-len(prefix), 10)
 		wrapped := msg.Text
-
 		if runtime.GOARCH != "386" {
 			wrapped = wordwrap.String(msg.Text, availableWidth)
 		}
-
 		lines := strings.Split(wrapped, "\n")
 
-		for i := range lines {
-			if i == 0 {
-				lines[i] = prefix + lines[i]
-			} else {
-				lines[i] = strings.Repeat(" ", len(prefix)) + lines[i]
+		if mentioned {
+			nickStyle = nickStyle.Background(mentionStyle.GetBackground())
+			for i := range lines {
+				if i == 0 {
+					lines[i] = nickStyle.Render(msg.Nick) + mentionStyle.Render(": "+lines[i])
+				} else {
+					lines[i] = mentionStyle.Render(strings.Repeat(" ", len(prefix)) + lines[i])
+				}
+			}
+			print("\a")
+		} else {
+			renderedNick := nickStyle.Render(msg.Nick)
+			for i := range lines {
+				if i == 0 {
+					lines[i] = renderedNick + ": " + lines[i]
+				} else {
+					lines[i] = strings.Repeat(" ", len(prefix)) + lines[i]
+				}
 			}
 		}
 
-		formatted := strings.Join(lines, "\n")
-
-		formatted = strings.Replace(
-			formatted,
-			msg.Nick,
-			nick,
-			1,
-		)
-
-		if mentioned {
-			formatted = lipgloss.NewStyle().
-				Background(lipgloss.Color("11")).
-				Foreground(lipgloss.Color("0")).
-				Bold(true).
-				Render(formatted)
-
-			print("\a")
-		}
-
-		m.messages = append(m.messages, formatted)
+		m.messages = append(m.messages, strings.Join(lines, "\n"))
 	}
 }
 
