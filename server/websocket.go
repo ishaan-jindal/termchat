@@ -46,6 +46,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		Conn:         conn,
 		Send:         make(chan Message, 32),
+		JoinedAt:     time.Now(),
 		LastActivity: time.Now(),
 	}
 
@@ -332,10 +333,14 @@ func broadcastUsersList(roomID string) {
 
 	room.Mutex.Lock()
 
-	var users []string
+	var users []UserInfo
 
 	for client := range room.Clients {
-		users = append(users, client.Nickname)
+		users = append(users, UserInfo{
+			Nick:     client.Nickname,
+			Color:    client.Color,
+			JoinedAt: client.JoinedAt.Unix(),
+		})
 	}
 
 	clients := make([]*Client, 0, len(room.Clients))
@@ -347,8 +352,8 @@ func broadcastUsersList(roomID string) {
 	room.Mutex.Unlock()
 
 	msg := Message{
-		Type: "users_list",
-		Text: strings.Join(users, ", "),
+		Type:  "users_list",
+		Users: users,
 	}
 
 	for _, client := range clients {

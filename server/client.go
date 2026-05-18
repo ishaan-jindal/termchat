@@ -13,6 +13,7 @@ type Client struct {
 	Send     chan Message
 	Color    string
 
+	JoinedAt          time.Time
 	LastActivity      time.Time
 	MessageTimestamps []time.Time
 }
