@@ -15,8 +15,8 @@ import (
 
 var (
 	Version    = "dev"
-	DefaultAPI = "https://localhost"
-	DefaultWS  = "ws://localhost:8080/ws"
+	DefaultAPI = "https://termchat.sacred99.online"
+	DefaultWS  = "wss://termchat.sacred99.online/ws"
 )
 
 func main() {
