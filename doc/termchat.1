@@ -1,0 +1,97 @@
+.TH TERMCHAT 1 "2025" "termchat" "User Commands"
+.SH NAME
+termchat \- minimal anonymous terminal chatrooms
+.SH SYNOPSIS
+.B termchat
+[\fIOPTIONS\fR] [\fIROOM\fR]
+.SH DESCRIPTION
+.B termchat
+is a lightweight terminal\-native chat client.
+Open a terminal, run one command, and instantly join or create an anonymous chatroom.
+.PP
+Built for quick collaboration, debugging sessions, pair programming,
+temporary communities, and internet\-native realtime chat.
+.PP
+If no \fIROOM\fR code is given, a new room is created automatically.
+.SH OPTIONS
+.TP
+.BR \-room " " \fICODE\fR
+Join an existing room by its code.
+.TP
+.BR \-server " " \fIURL\fR
+WebSocket server URL (default: wss://termchat.sacred99.online/ws).
+.TP
+.BR \-api " " \fIURL\fR
+API server URL (default: https://termchat.sacred99.online).
+.TP
+.BR \-version
+Show version and exit.
+.SH COMMANDS
+The following commands can be typed in the chat input:
+.TP
+.B /help
+Show available commands.
+.TP
+.B /clear
+Clear chat history.
+.TP
+.B /nick \fINAME\fR
+Change your nickname.
+.TP
+.B /color \fI#RRGGBB\fR
+Change your nickname color (hex format).
+.TP
+.B /quit
+Exit the room.
+.SH KEYBINDINGS
+.TP
+.B Enter
+Send message.
+.TP
+.B Alt+Enter
+Insert newline.
+.TP
+.B Up/Down
+Scroll through input history.
+.TP
+.B PgUp/PgDown
+Scroll chat viewport.
+.TP
+.B Ctrl+C
+Quit.
+.SH FILES
+.TP
+.I ~/.termchat/config.json
+User configuration (nickname, color). Created automatically.
+.SH EXAMPLES
+Create a new room:
+.PP
+.RS
+.B termchat
+.RE
+.PP
+Join an existing room:
+.PP
+.RS
+.B termchat 7WHB
+.RE
+.PP
+Join with \fB\-\-room\fR flag:
+.PP
+.RS
+.B termchat \-room 7WHB
+.RE
+.PP
+Use a custom server:
+.PP
+.RS
+.B termchat \-server wss://my.server/ws \-api https://my.server
+.RE
+.SH BUGS
+Report bugs at \fIhttps://github.com/ishaan\-jindal/termchat/issues\fR.
+.SH AUTHOR
+Ishaan Jindal
+.SH LICENSE
+MIT License. See \fI/usr/share/licenses/termchat/LICENSE\fR.
+.SH SEE ALSO
+Project homepage: \fIhttps://github.com/ishaan\-jindal/termchat\fR

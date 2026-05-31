@@ -70,6 +70,7 @@ jobs:
           GOARCH=${{ matrix.arch }} \
           go build \
           -ldflags "\
+          -s -w \
           -X main.Version=${{ github.ref_name }} \
           -X main.DefaultAPI=${{ vars.TERMCHAT_API_URL }} \
           -X main.DefaultWS=${{ vars.TERMCHAT_WS_URL }}" \
@@ -80,3 +81,36 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+
+  checksums:
+    runs-on: ubuntu-latest
+    needs: binaries
+
+    permissions:
+      contents: write
+
+    steps:
+
+      - name: Wait for release assets
+        run: sleep 15
+
+      - name: Download all release binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download ${{ github.ref_name }} \
+            --repo ${{ github.repository }} \
+            --dir dist \
+            --pattern 'termchat-*'
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum termchat-* > termchat-checksums.txt
+          cat termchat-checksums.txt
+
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/termchat-checksums.txt
