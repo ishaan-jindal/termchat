@@ -1,0 +1,102 @@
+name: AUR Publish
+
+on:
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. cli-v0.4.3)"
+        required: true
+
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+
+  aur-publish:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+
+      - name: Install dependencies
+        run: pacman -Sy --noconfirm git openssh
+
+      - name: Setup SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          cat > ~/.ssh/config << 'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+            StrictHostKeyChecking accept-new
+          EOF
+
+      - name: Configure git
+        run: |
+          git config --global user.name "Ishaan Jindal"
+          git config --global user.email "ishaan-jindal@users.noreply.github.com"
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ inputs.tag }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#cli-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download checksums
+        run: |
+          curl -fsSL \
+            "https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/termchat-checksums.txt" \
+            -o checksums.txt
+
+          cat checksums.txt
+
+      - name: Extract checksums
+        id: sums
+        run: |
+          echo "amd64=$(grep 'termchat-linux-amd64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(grep 'termchat-linux-arm64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "i686=$(grep 'termchat-linux-386$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Clone AUR repo
+        run: git clone ssh://aur@aur.archlinux.org/ishaans-termchat-bin.git aur-repo
+
+      - name: Update PKGBUILD
+        run: |
+          cd aur-repo
+
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.tag.outputs.version }}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.sums.outputs.amd64 }}')/" PKGBUILD
+          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.sums.outputs.arm64 }}')/" PKGBUILD
+          sed -i "s/^sha256sums_i686=.*/sha256sums_i686=('${{ steps.sums.outputs.i686 }}')/" PKGBUILD
+
+          echo "=== Updated PKGBUILD ==="
+          cat PKGBUILD
+
+      - name: Generate .SRCINFO
+        run: |
+          cd aur-repo
+          useradd -m builder
+          chown -R builder:builder .
+          su builder -c "makepkg --printsrcinfo > .SRCINFO"
+          cat .SRCINFO
+
+      - name: Push to AUR
+        run: |
+          cd aur-repo
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet && echo "No changes to push" && exit 0
+          git commit -m "Update to v${{ steps.tag.outputs.version }}"
+          git push

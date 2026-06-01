@@ -116,77 +116,9 @@ jobs:
           files: dist/termchat-checksums.txt
 
   aur-publish:
-    runs-on: ubuntu-latest
-    container: archlinux:base-devel
     needs: checksums
-
-    steps:
-
-      - name: Install dependencies
-        run: pacman -Sy --noconfirm git openssh
-
-      - name: Setup SSH for AUR
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
-
-          cat > ~/.ssh/config << 'EOF'
-          Host aur.archlinux.org
-            IdentityFile ~/.ssh/aur
-            User aur
-          EOF
-
-      - name: Configure git
-        run: |
-          git config --global user.name "Ishaan Jindal"
-          git config --global user.email "ishaan-jindal@users.noreply.github.com"
-
-      - name: Extract version and checksums
-        id: meta
-        run: |
-          VERSION="${GITHUB_REF_NAME#cli-v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-          curl -fsSL \
-            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/termchat-checksums.txt" \
-            -o checksums.txt
-
-          cat checksums.txt
-
-          echo "amd64=$(grep 'termchat-linux-amd64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "arm64=$(grep 'termchat-linux-arm64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "i686=$(grep 'termchat-linux-386$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Clone AUR repo
-        run: git clone ssh://aur@aur.archlinux.org/ishaans-termchat-bin.git aur-repo
-
-      - name: Update PKGBUILD
-        run: |
-          cd aur-repo
-
-          sed -i "s/^pkgver=.*/pkgver=${{ steps.meta.outputs.version }}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.meta.outputs.amd64 }}')/" PKGBUILD
-          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.meta.outputs.arm64 }}')/" PKGBUILD
-          sed -i "s/^sha256sums_i686=.*/sha256sums_i686=('${{ steps.meta.outputs.i686 }}')/" PKGBUILD
-
-          echo "=== Updated PKGBUILD ==="
-          cat PKGBUILD
-
-      - name: Generate .SRCINFO
-        run: |
-          cd aur-repo
-          useradd -m builder
-          chown -R builder:builder .
-          su builder -c "makepkg --printsrcinfo > .SRCINFO"
-          cat .SRCINFO
-
-      - name: Push to AUR
-        run: |
-          cd aur-repo
-          git add PKGBUILD .SRCINFO
-          git diff --cached --quiet && echo "No changes to push" && exit 0
-          git commit -m "Update to v${{ steps.meta.outputs.version }}"
-          git push
+    uses: ./.github/workflows/aur.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
