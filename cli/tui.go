@@ -63,6 +63,8 @@ type Model struct {
 
 	history      []string
 	historyIndex int
+
+	lastTypingSent time.Time
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -165,7 +167,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var cmd tea.Cmd
 
+		previousValue := m.input.Value()
 		m.input, cmd = m.input.Update(msg)
+
+		if m.input.Value() != previousValue {
+			if time.Since(m.lastTypingSent) > 2*time.Second {
+				m.conn.conn.WriteJSON(Message{
+					Type: "typing",
+				})
+				m.lastTypingSent = time.Now()
+			}
+		}
 
 		return m, cmd
 
@@ -328,15 +340,21 @@ func renderUsers(m Model) string {
 
 		joined := relativeTime(user.JoinedAt)
 
+		status := ""
+		if user.Typing {
+			status = "✍ "
+		}
+
 		coloredNick := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(user.Color)).
 			Bold(true).
 			Render("● " + nick)
 
 		line := fmt.Sprintf(
-			"%-12s %4s",
+			"%-12s%4s %s",
 			coloredNick,
 			joined,
+			status,
 		)
 
 		lines = append(lines, line)
