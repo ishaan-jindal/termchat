@@ -214,8 +214,25 @@ func readPump(client *Client) {
 			continue
 		}
 
+		if msg.Type == "typing" {
+			wasTyping := client.Typing
+			client.Typing = true
+			client.LastTyping = time.Now()
+
+			if !wasTyping {
+				broadcastUsersList(client.RoomID)
+			}
+
+			continue
+		}
+
 		if msg.Type == "message" && msg.Text == "" {
 			continue
+		}
+
+		if client.Typing {
+			client.Typing = false
+			broadcastUsersList(client.RoomID)
 		}
 
 		msg.Nick = client.Nickname
@@ -341,6 +358,7 @@ func broadcastUsersList(roomID string) {
 			Nick:     client.Nickname,
 			Color:    client.Color,
 			JoinedAt: client.JoinedAt.Unix(),
+			Typing:   client.Typing,
 		})
 	}
 
@@ -444,6 +462,38 @@ func cleanupIdleClients() {
 
 					client.Conn.Close()
 				}
+			}
+		}
+	}
+}
+
+func cleanupTypingIndicators() {
+	ticker := time.NewTicker(time.Second)
+
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, room := range rooms {
+
+			room.Mutex.Lock()
+
+			changed := false
+
+			for client := range room.Clients {
+				if client.Typing &&
+					time.Since(client.LastTyping) > 3*time.Second {
+
+					client.Typing = false
+					changed = true
+				}
+			}
+
+			roomID := room.ID
+
+			room.Mutex.Unlock()
+
+			if changed {
+				broadcastUsersList(roomID)
 			}
 		}
 	}

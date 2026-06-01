@@ -18,6 +18,7 @@ func main() {
 	log.Println("websocket server running on", addr)
 
 	go cleanupIdleClients()
+	go cleanupTypingIndicators()
 
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {

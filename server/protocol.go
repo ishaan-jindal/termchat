@@ -15,4 +15,5 @@ type UserInfo struct {
 	Nick     string `json:"nick"`
 	Color    string `json:"color"`
 	JoinedAt int64  `json:"joined_at"`
+	Typing   bool   `json:"typing"`
 }

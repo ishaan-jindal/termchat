@@ -13,6 +13,9 @@ type Client struct {
 	Send     chan Message
 	Color    string
 
+	Typing     bool
+	LastTyping time.Time
+
 	JoinedAt          time.Time
 	LastActivity      time.Time
 	MessageTimestamps []time.Time
