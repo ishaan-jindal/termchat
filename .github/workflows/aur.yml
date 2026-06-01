@@ -23,6 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
 
+    env:
+      GIT_SSH_COMMAND: ssh -i /root/.ssh/aur -o StrictHostKeyChecking=no
+
     steps:
 
       - name: Install dependencies
@@ -30,17 +33,10 @@ jobs:
 
       - name: Setup SSH for AUR
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
-
-          cat > ~/.ssh/config << 'EOF'
-          Host aur.archlinux.org
-            IdentityFile ~/.ssh/aur
-            User aur
-            StrictHostKeyChecking accept-new
-          EOF
+          mkdir -p /root/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > /root/.ssh/aur
+          chmod 600 /root/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> /root/.ssh/known_hosts 2>/dev/null
 
       - name: Configure git
         run: |
