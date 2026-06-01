@@ -72,12 +72,23 @@ jobs:
       - name: Update PKGBUILD
         run: |
           cd aur-repo
+          VER="${{ steps.tag.outputs.version }}"
 
-          sed -i "s/^pkgver=.*/pkgver=${{ steps.tag.outputs.version }}/" PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${VER}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
           sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.sums.outputs.amd64 }}')/" PKGBUILD
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.sums.outputs.arm64 }}')/" PKGBUILD
           sed -i "s/^sha256sums_i686=.*/sha256sums_i686=('${{ steps.sums.outputs.i686 }}')/" PKGBUILD
+
+          # Ensure source filenames include version to prevent cache collisions
+          sed -i 's|^source_x86_64=.*|source_x86_64=("termchat-linux-amd64-${pkgver}::${_base_url}/termchat-linux-amd64")|' PKGBUILD
+          sed -i 's|^source_aarch64=.*|source_aarch64=("termchat-linux-arm64-${pkgver}::${_base_url}/termchat-linux-arm64")|' PKGBUILD
+          sed -i 's|^source_i686=.*|source_i686=("termchat-linux-386-${pkgver}::${_base_url}/termchat-linux-386")|' PKGBUILD
+
+          # Ensure package() references versioned filenames
+          sed -i 's|_binary="termchat-linux-amd64.*"|_binary="termchat-linux-amd64-${pkgver}"|' PKGBUILD
+          sed -i 's|_binary="termchat-linux-arm64.*"|_binary="termchat-linux-arm64-${pkgver}"|' PKGBUILD
+          sed -i 's|_binary="termchat-linux-386.*"|_binary="termchat-linux-386-${pkgver}"|' PKGBUILD
 
           echo "=== Updated PKGBUILD ==="
           cat PKGBUILD
