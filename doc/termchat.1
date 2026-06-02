@@ -4,6 +4,9 @@ termchat \- minimal anonymous terminal chatrooms
 .SH SYNOPSIS
 .B termchat
 [\fIOPTIONS\fR] [\fIROOM\fR]
+.br
+.B termchat host
+[\fIROOM\fR] [\fIOPTIONS\fR]
 .SH DESCRIPTION
 .B termchat
 is a lightweight terminal\-native chat client.
@@ -13,19 +16,46 @@ Built for quick collaboration, debugging sessions, pair programming,
 temporary communities, and internet\-native realtime chat.
 .PP
 If no \fIROOM\fR code is given, a new room is created automatically.
+.PP
+LAN host mode starts a local WebSocket server in the same process and opens
+the normal terminal UI. Other users join directly by IP address; termchat does
+not perform LAN discovery, mDNS, UDP broadcast discovery, or peer\-to\-peer
+networking.
 .SH OPTIONS
 .TP
-.BR \-room " " \fICODE\fR
+.BR \-\-room " " \fICODE\fR
 Join an existing room by its code.
 .TP
-.BR \-server " " \fIURL\fR
-WebSocket server URL (default: wss://termchat.sacred99.online/ws).
+.BR \-\-host " " \fIADDRESS\fR
+Connect to a LAN host by IP address or hostname. The WebSocket URL is built as
+\fBws://ADDRESS:PORT/ws\fR unless \fB\-\-server\fR is provided.
 .TP
-.BR \-api " " \fIURL\fR
+.BR \-\-port " " \fIPORT\fR
+LAN WebSocket port for hosting or joining (default: 8080).
+.TP
+.BR \-\-server " " \fIURL\fR
+WebSocket server URL (default: wss://termchat.sacred99.online/ws).
+This option takes priority over \fB\-\-host\fR and \fB\-\-port\fR.
+.TP
+.BR \-\-api " " \fIURL\fR
 API server URL (default: https://termchat.sacred99.online).
 .TP
-.BR \-version
+.BR \-\-version
 Show version and exit.
+.TP
+.BR \-\-help ", " \-h
+Show command usage and exit.
+.SH HOST MODE
+.TP
+.B termchat host
+Generate a room code, start a local WebSocket server on port 8080, join the
+room locally, and open the TUI.
+.TP
+.B termchat host \fIROOM\fR
+Start a local WebSocket server, validate and join \fIROOM\fR, and open the TUI.
+.TP
+.B termchat host [\fIROOM\fR] \-\-port \fIPORT\fR
+Host on a custom port.
 .SH COMMANDS
 The following commands can be typed in the chat input:
 .TP
@@ -79,13 +109,43 @@ Join an existing room:
 Join with \fB\-\-room\fR flag:
 .PP
 .RS
-.B termchat \-room 7WHB
+.B termchat \-\-room 7WHB
 .RE
 .PP
 Use a custom server:
 .PP
 .RS
-.B termchat \-server wss://my.server/ws \-api https://my.server
+.B termchat \-\-server wss://my.server/ws \-\-api https://my.server
+.RE
+.PP
+Host a LAN room with an auto\-generated room code:
+.PP
+.RS
+.B termchat host
+.RE
+.PP
+Host a specific LAN room:
+.PP
+.RS
+.B termchat host FROG
+.RE
+.PP
+Host on a custom LAN port:
+.PP
+.RS
+.B termchat host FROG \-\-port 9000
+.RE
+.PP
+Join a LAN room by IP address:
+.PP
+.RS
+.B termchat FROG \-\-host 192.168.1.42
+.RE
+.PP
+Join a LAN room on a custom port:
+.PP
+.RS
+.B termchat FROG \-\-host 192.168.1.42 \-\-port 9000
 .RE
 .SH BUGS
 Report bugs at \fIhttps://github.com/ishaan\-jindal/termchat/issues\fR.

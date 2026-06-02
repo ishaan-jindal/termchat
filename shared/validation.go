@@ -12,6 +12,7 @@ func IsValidHexColor(color string) bool {
 }
 
 func IsValidRoomCode(room string) bool {
+	room = NormalizeRoomCode(room)
 	if len(room) != RoomCodeLength {
 		return false
 	}

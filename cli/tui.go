@@ -53,6 +53,10 @@ type Model struct {
 	users     []UserInfo
 	connected bool
 
+	IsHost   bool
+	HostIP   string
+	HostPort int
+
 	viewport viewport.Model
 	width    int
 	height   int
@@ -297,16 +301,29 @@ func (m Model) View() string {
 		Width(m.width - 6).
 		Render(m.input.View())
 
+	statusText := fmt.Sprintf(
+		"Connected • Room %s • %d users%s",
+		m.room,
+		len(m.users),
+		scrollInfo,
+	)
+
+	if m.IsHost {
+		statusText = fmt.Sprintf(
+			"SELF-HOSTED • Room %s • %s:%d • %d users%s",
+			m.room,
+			m.HostIP,
+			m.HostPort,
+			len(m.users),
+			scrollInfo,
+		)
+	}
+
 	status := panelStyle.
 		Width(m.width - 6).
 		Render(
 			statusStyle.Render(
-				fmt.Sprintf(
-					"Connected • Room %s • %d users%s",
-					m.room,
-					len(m.users),
-					scrollInfo,
-				),
+				statusText,
 			),
 		)
 

@@ -6,7 +6,7 @@ COPY . .
 
 WORKDIR /app/server
 
-RUN go build -o server
+RUN go build -o server ./cmd/server
 
 FROM debian:stable-slim
 
