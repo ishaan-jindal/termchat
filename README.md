@@ -13,6 +13,7 @@ Built for quick collaboration, debugging sessions, pair programming, temporary c
 * Anonymous ephemeral chat rooms
 * Zero account creation
 * Realtime WebSocket messaging
+* LAN Host Mode for direct IP-based local rooms
 * Modern terminal-native TUI
 * Sidebar user list
 * Mention highlighting (`@user`)
@@ -104,6 +105,83 @@ Set-ExecutionPolicy -Scope Process Bypass
 pkg install curl
 curl -fsSL https://termchat.sacred99.online | bash
 ```
+
+---
+
+# CLI Usage
+
+Create a cloud room:
+
+```bash
+termchat
+```
+
+Join a cloud room:
+
+```bash
+termchat FROG
+```
+
+Join with an explicit room flag:
+
+```bash
+termchat --room FROG
+```
+
+Use a custom WebSocket server:
+
+```bash
+termchat FROG --server wss://my.server/ws
+```
+
+Show help:
+
+```bash
+termchat --help
+```
+
+---
+
+# LAN Host Mode
+
+LAN Host Mode runs the WebSocket server, room manager, and local TUI in one process.
+Other users connect directly to the host's IP address.
+
+Host an auto-generated room:
+
+```bash
+termchat host
+```
+
+Host a specific room:
+
+```bash
+termchat host FROG
+```
+
+Host on a custom port:
+
+```bash
+termchat host FROG --port 9000
+```
+
+Join a LAN room:
+
+```bash
+termchat FROG --host 192.168.1.42
+```
+
+Join a LAN room on a custom port:
+
+```bash
+termchat FROG --host 192.168.1.42 --port 9000
+```
+
+Notes:
+
+* Default LAN port: `8080`
+* `--server` still works and takes priority over `--host` / `--port`
+* No LAN discovery, mDNS, UDP broadcast discovery, or peer-to-peer networking is used
 
 ---
 
