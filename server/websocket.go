@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 
+	"termchat/shared"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -73,7 +75,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		client.Nickname = client.Nickname[:maxNickLength]
 	}
 	client.Color = defaultColorForNick(client.Nickname)
-	client.RoomID = joinMsg.Room
+	client.RoomID = shared.NormalizeRoomCode(joinMsg.Room)
+	if !shared.IsValidRoomCode(client.RoomID) {
+		conn.Close()
+		return
+	}
 
 	room, exists := rooms[client.RoomID]
 
@@ -200,7 +206,7 @@ func readPump(client *Client) {
 		}
 
 		if msg.Type == "color" {
-			if !isValidHexColor(msg.Color) {
+			if !shared.IsValidHexColor(msg.Color) {
 				continue
 			}
 			client.Color = msg.Color
@@ -428,11 +434,6 @@ func sanitizeInput(input string) string {
 	}, input)
 
 	return strings.TrimSpace(input)
-}
-
-func isValidHexColor(color string) bool {
-	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-	return re.MatchString(color)
 }
 
 func cleanupIdleClients() {

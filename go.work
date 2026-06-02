@@ -1,7 +1,9 @@
 go 1.26.3
 
 use (
+	.
 	./api
 	./cli
 	./server
+	./shared
 )

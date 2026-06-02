@@ -5,6 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"termchat/shared"
+)
+
+type (
+	Message  = shared.Message
+	UserInfo = shared.UserInfo
 )
 
 func main() {

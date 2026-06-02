@@ -10,7 +10,14 @@ import (
 	"os"
 	"strings"
 
+	"termchat/shared"
+
 	tea "github.com/charmbracelet/bubbletea"
+)
+
+type (
+	Message  = shared.Message
+	UserInfo = shared.UserInfo
 )
 
 var (
@@ -63,6 +70,10 @@ func main() {
 	if room == "" {
 		room = fetchNewRoom(*apiFlag)
 		fmt.Println("Created Room:", room)
+	}
+	room = shared.NormalizeRoomCode(room)
+	if !shared.IsValidRoomCode(room) {
+		log.Fatalf("invalid room code %q", room)
 	}
 
 	conn, err := connectWebSocket(*serverFlag)

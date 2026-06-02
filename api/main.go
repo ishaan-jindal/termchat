@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +9,8 @@ import (
 	"os"
 	"text/template"
 	"time"
+
+	"termchat/shared"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -53,25 +54,33 @@ func main() {
 }
 
 func createRoomHandler(w http.ResponseWriter, r *http.Request) {
-	room := generateRoomCode()
+	room := shared.GenerateRoomCode()
 
 	renderBootstrapScript(w, room)
 }
 
 func joinRoomHandler(w http.ResponseWriter, r *http.Request) {
-	room := chi.URLParam(r, "room")
+	room := shared.NormalizeRoomCode(chi.URLParam(r, "room"))
+	if !shared.IsValidRoomCode(room) {
+		http.Error(w, "invalid room code", http.StatusBadRequest)
+		return
+	}
 
 	renderBootstrapScript(w, room)
 }
 
 func windowsJoinHandler(w http.ResponseWriter, r *http.Request) {
-	room := chi.URLParam(r, "room")
+	room := shared.NormalizeRoomCode(chi.URLParam(r, "room"))
+	if !shared.IsValidRoomCode(room) {
+		http.Error(w, "invalid room code", http.StatusBadRequest)
+		return
+	}
 
 	renderWindowsBootstrap(w, room)
 }
 
 func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
-	room := generateRoomCode()
+	room := shared.GenerateRoomCode()
 
 	renderWindowsBootstrap(w, room)
 }
@@ -154,27 +163,6 @@ func binaryHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
-func generateRoomCode() string {
-	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-
-	length := 4
-
-	bytes := make([]byte, length)
-
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "FROG"
-	}
-
-	result := make([]byte, length)
-
-	for i, b := range bytes {
-		result[i] = chars[int(b)%len(chars)]
-	}
-
-	return string(result)
-}
-
 func fetchLatestCLIVersion() string {
 	repo := os.Getenv("GITHUB_REPO")
 
@@ -221,7 +209,7 @@ func refreshCLIVersionLoop() {
 }
 
 func newRoomAPIHandler(w http.ResponseWriter, r *http.Request) {
-	room := generateRoomCode()
+	room := shared.GenerateRoomCode()
 
 	w.Write([]byte(room))
 }

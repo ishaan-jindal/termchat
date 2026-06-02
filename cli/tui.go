@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"termchat/shared"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -475,7 +476,7 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 
 		color := parts[1]
 
-		if !isValidHexColor(color) {
+		if !shared.IsValidHexColor(color) {
 			m.messages = append(
 				m.messages,
 				systemStyle.Render("Invalid hex color"),
@@ -504,11 +505,6 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 
 func clearTerminal() {
 	print("\033[H\033[2J")
-}
-
-func isValidHexColor(color string) bool {
-	re := regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-	return re.MatchString(color)
 }
 
 func textareaHeight(input textarea.Model) int {
