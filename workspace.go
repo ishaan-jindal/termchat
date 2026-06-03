@@ -1,1 +1,2 @@
+// Package termchat
 package termchat
