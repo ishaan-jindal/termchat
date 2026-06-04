@@ -14,8 +14,11 @@ Built for quick collaboration, debugging sessions, pair programming, temporary c
 * Zero account creation
 * Realtime WebSocket messaging
 * LAN Host Mode for direct IP-based local rooms
+* Room discovery (online and LAN)
+* Room passwords (locked / unlocked rooms)
+* Host privileges with automatic succession
 * Modern terminal-native TUI
-* Sidebar user list
+* Sidebar user list with host indicator
 * Mention highlighting (`@user`)
 * Cross-platform bootstrap installer
 * Linux / macOS / Windows / Android (Termux) support
@@ -49,7 +52,7 @@ The latest TUI includes:
 │ Alice: Hey @Bob                                                            │
 │ Bob: sup                                                                   │
 │                                                                            │
-│ Commands: /help /clear /nick /color /quit                                  │
+│ Commands: /help /clear /nick /color /password /quit                        │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ > Type a message...                                                        │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -134,6 +137,14 @@ Use a custom WebSocket server:
 termchat FROG --server wss://my.server/ws
 ```
 
+Discover rooms:
+
+```bash
+termchat discover
+termchat discover --online
+termchat discover --local
+```
+
 Show help:
 
 ```bash
@@ -165,10 +176,23 @@ Host on a custom port:
 termchat host FROG --port 9000
 ```
 
+Host a password-protected room:
+
+```bash
+termchat host --password secret
+termchat host FROG --password secret
+```
+
 Join a LAN room:
 
 ```bash
 termchat FROG --host 192.168.1.42
+```
+
+Join a LAN room with a password:
+
+```bash
+termchat FROG --host 192.168.1.42 --password secret
 ```
 
 Join a LAN room on a custom port:
@@ -181,7 +205,7 @@ Notes:
 
 * Default LAN port: `8080`
 * `--server` still works and takes priority over `--host` / `--port`
-* No LAN discovery, mDNS, UDP broadcast discovery, or peer-to-peer networking is used
+* A UDP multicast beacon is broadcast every second, enabling `termchat discover --local`
 
 ---
 
@@ -198,13 +222,15 @@ Notes:
 
 # Commands
 
-| Command       | Description             |
-| ------------- | ----------------------- |
-| `/help`       | Show available commands |
-| `/clear`      | Clear chat history      |
-| `/nick NAME`  | Change nickname         |
-| `/color #HEX` | Change nickname color   |
-| `/quit`       | Exit room               |
+| Command            | Description                              |
+| ------------------ | ---------------------------------------- |
+| `/help`            | Show available commands                  |
+| `/clear`           | Clear chat history                       |
+| `/nick NAME`       | Change nickname                          |
+| `/color #HEX`      | Change nickname color                    |
+| `/password NEWPASS` | Set or change room password (host only) |
+| `/password`        | Remove room password (host only)         |
+| `/quit`            | Exit room                                |
 
 Notes:
 
@@ -223,6 +249,12 @@ termchat rooms are:
 * Automatically created on join
 * Deleted when empty
 * Shareable via URL-style room codes
+* Locked (password-protected) or unlocked
+
+The first user to join a room becomes the host. The host is shown with a
+`[host]` tag in the user list sidebar. When the host disconnects, the next
+oldest user by join time becomes the new host. A system message broadcasts
+the change.
 
 Example:
 
@@ -244,6 +276,7 @@ Current protections include:
 * Automatic binary fetching
 * ANSI escape sanitization
 * Message length enforcement
+* Room passwords for access control
 
 Recommended future hardening:
 
@@ -263,7 +296,6 @@ Planned ideas:
 * Message reactions
 * Terminal notifications
 * Persistent optional identities
-* Invite-only rooms
 * End-to-end encryption experiments
 * Self-hosted one-command deployment
 * Rich markdown rendering

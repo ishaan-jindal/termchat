@@ -1,4 +1,4 @@
-.TH TERMCHAT 1 "2025" "termchat" "User Commands"
+.TH TERMCHAT 1 "2026" "termchat" "User Commands"
 .SH NAME
 termchat \- minimal anonymous terminal chatrooms
 .SH SYNOPSIS
@@ -7,6 +7,9 @@ termchat \- minimal anonymous terminal chatrooms
 .br
 .B termchat host
 [\fIROOM\fR] [\fIOPTIONS\fR]
+.br
+.B termchat discover
+[\fIOPTIONS\fR]
 .SH DESCRIPTION
 .B termchat
 is a lightweight terminal\-native chat client.
@@ -18,9 +21,13 @@ temporary communities, and internet\-native realtime chat.
 If no \fIROOM\fR code is given, a new room is created automatically.
 .PP
 LAN host mode starts a local WebSocket server in the same process and opens
-the normal terminal UI. Other users join directly by IP address; termchat does
-not perform LAN discovery, mDNS, UDP broadcast discovery, or peer\-to\-peer
-networking.
+the normal terminal UI. Other users join directly by IP address. A UDP
+multicast beacon is broadcast every second, enabling LAN room discovery via
+\fBtermchat discover \-\-local\fR.
+.PP
+The first user to join a room becomes the host. The host is shown with a
+\fB[host]\fR tag in the user list sidebar. When the host disconnects, the
+next oldest user by join time becomes the new host.
 .SH OPTIONS
 .TP
 .BR \-\-room " " \fICODE\fR
@@ -40,6 +47,16 @@ This option takes priority over \fB\-\-host\fR and \fB\-\-port\fR.
 .BR \-\-api " " \fIURL\fR
 API server URL (default: https://termchat.sacred99.online).
 .TP
+.BR \-\-password " " \fIPASS\fR
+Room password for hosting or joining. If joining a locked room without this
+flag, the CLI prompts interactively.
+.TP
+.BR \-\-online
+Discover filter: show online rooms only.
+.TP
+.BR \-\-local
+Discover filter: show LAN rooms only.
+.TP
 .BR \-\-version
 Show version and exit.
 .TP
@@ -56,6 +73,9 @@ Start a local WebSocket server, validate and join \fIROOM\fR, and open the TUI.
 .TP
 .B termchat host [\fIROOM\fR] \-\-port \fIPORT\fR
 Host on a custom port.
+.TP
+.B termchat host [\fIROOM\fR] \-\-password \fIPASS\fR
+Host a password\-protected (locked) room.
 .SH COMMANDS
 The following commands can be typed in the chat input:
 .TP
@@ -70,6 +90,12 @@ Change your nickname.
 .TP
 .B /color \fI#RRGGBB\fR
 Change your nickname color (hex format).
+.TP
+.B /password \fINEWPASS\fR
+Set or change the room password (host only).
+.TP
+.B /password
+Remove the room password and unlock the room (host only).
 .TP
 .B /quit
 Exit the room.
@@ -146,6 +172,36 @@ Join a LAN room on a custom port:
 .PP
 .RS
 .B termchat FROG \-\-host 192.168.1.42 \-\-port 9000
+.RE
+.PP
+Host a password\-protected room:
+.PP
+.RS
+.B termchat host \-\-password secret
+.RE
+.PP
+Join a room with a password:
+.PP
+.RS
+.B termchat FROG \-\-password secret
+.RE
+.PP
+Discover all rooms (online and LAN):
+.PP
+.RS
+.B termchat discover
+.RE
+.PP
+Discover online rooms only:
+.PP
+.RS
+.B termchat discover \-\-online
+.RE
+.PP
+Discover LAN rooms only:
+.PP
+.RS
+.B termchat discover \-\-local
 .RE
 .SH BUGS
 Report bugs at \fIhttps://github.com/ishaan\-jindal/termchat/issues\fR.
