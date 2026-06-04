@@ -6,7 +6,8 @@ import (
 )
 
 type Connection struct {
-	conn *websocket.Conn
+	conn     *websocket.Conn
+	firstMsg *Message // buffered first message (used after password check)
 }
 
 func connectWebSocket(server string) (*Connection, error) {
@@ -22,6 +23,13 @@ func connectWebSocket(server string) (*Connection, error) {
 
 func waitForMessage(conn *Connection) tea.Cmd {
 	return func() tea.Msg {
+		// If there is a buffered first message, return it first
+		if conn.firstMsg != nil {
+			msg := IncomingMessage(*conn.firstMsg)
+			conn.firstMsg = nil
+			return msg
+		}
+
 		var msg IncomingMessage
 
 		err := conn.conn.ReadJSON(&msg)

@@ -1,6 +1,13 @@
 package main
 
-import "net"
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"time"
+
+	"termchat/shared"
+)
 
 func GetLocalIP() string {
 	interfaces, err := net.Interfaces()
@@ -38,4 +45,42 @@ func GetLocalIP() string {
 	}
 
 	return "localhost"
+}
+
+// startLANBroadcaster periodically sends a UDP multicast beacon so that
+// `termchat discover` on the same LAN can find this host.
+func startLANBroadcaster(room string, port int, hostNick string) {
+	beacon := lanBeacon{
+		Room: room,
+		Port: port,
+		Host: hostNick,
+		IP:   GetLocalIP(),
+	}
+
+	payload, err := json.Marshal(beacon)
+	if err != nil {
+		return
+	}
+
+	msg := []byte(fmt.Sprintf("%s|%s", shared.DiscoveryMagic, payload))
+
+	addr := &net.UDPAddr{
+		IP:   net.ParseIP(shared.DiscoveryMulticast),
+		Port: shared.DiscoveryPort,
+	}
+
+	go func() {
+		for {
+			conn, err := net.DialUDP("udp4", nil, addr)
+			if err != nil {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			conn.Write(msg)
+			conn.Close()
+
+			time.Sleep(1 * time.Second)
+		}
+	}()
 }

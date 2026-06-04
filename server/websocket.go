@@ -84,15 +84,33 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		room = &Room{
-			ID:      client.RoomID,
-			Clients: make(map[*Client]bool),
+			ID:       client.RoomID,
+			Password: initialPassword,
+			Clients:  make(map[*Client]bool),
 		}
 
 		rooms[client.RoomID] = room
 	}
 
+	// Password check
 	room.Mutex.Lock()
+	if room.Password != "" && joinMsg.Password != room.Password {
+		room.Mutex.Unlock()
+		conn.WriteJSON(Message{
+			Type: "error",
+			Text: "invalid_password",
+		})
+		conn.Close()
+		return
+	}
+
 	room.Clients[client] = true
+
+	// First client becomes host
+	if room.Host == nil {
+		room.Host = client
+	}
+
 	history := make([]Message, len(room.History))
 	copy(history, room.History)
 	room.Mutex.Unlock()
@@ -219,6 +237,43 @@ func readPump(client *Client) {
 			continue
 		}
 
+		if msg.Type == "set_password" {
+			room := rooms[client.RoomID]
+			if room == nil {
+				continue
+			}
+			room.Mutex.Lock()
+			isHost := room.Host == client
+			room.Mutex.Unlock()
+
+			if !isHost {
+				client.Send <- Message{
+					Type: "system",
+					Text: "Only the host can change the password",
+				}
+				continue
+			}
+
+			newPass := strings.TrimSpace(msg.Password)
+			room.Mutex.Lock()
+			room.Password = newPass
+			room.Mutex.Unlock()
+
+			if newPass == "" {
+				broadcastToRoom(client.RoomID, Message{
+					Type: "system",
+					Text: "Room password removed — room is now unlocked",
+				})
+			} else {
+				broadcastToRoom(client.RoomID, Message{
+					Type: "system",
+					Text: "Room password updated by host",
+				})
+			}
+
+			continue
+		}
+
 		if msg.Type == "typing" {
 			wasTyping := client.Typing
 			client.Typing = true
@@ -331,7 +386,30 @@ func cleanupClient(client *Client) {
 
 		empty := len(room.Clients) == 0
 
-		room.Mutex.Unlock()
+		// Host transfer: if this client was the host, pick the next oldest
+		if room.Host == client && !empty {
+			room.Host = nil
+			for c := range room.Clients {
+				if room.Host == nil || c.JoinedAt.Before(room.Host.JoinedAt) {
+					room.Host = c
+				}
+			}
+
+			newHostNick := ""
+			if room.Host != nil {
+				newHostNick = room.Host.Nickname
+			}
+			room.Mutex.Unlock()
+
+			if newHostNick != "" {
+				broadcastToRoom(client.RoomID, Message{
+					Type: "system",
+					Text: newHostNick + " is now the host",
+				})
+			}
+		} else {
+			room.Mutex.Unlock()
+		}
 
 		if empty {
 			delete(rooms, room.ID)
@@ -364,6 +442,7 @@ func broadcastUsersList(roomID string) {
 			Color:    client.Color,
 			JoinedAt: client.JoinedAt.Unix(),
 			Typing:   client.Typing,
+			IsHost:   room.Host == client,
 		})
 	}
 

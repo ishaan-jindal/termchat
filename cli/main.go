@@ -43,7 +43,12 @@ type cliOptions struct {
 	Host string
 	Port int
 
-	HostMode bool
+	Password string
+
+	HostMode     bool
+	DiscoverMode bool
+	OnlineOnly   bool
+	LocalOnly    bool
 }
 
 func main() {
@@ -62,11 +67,20 @@ func main() {
 		return
 	}
 
+	if opts.DiscoverMode {
+		runDiscover(discoverOptions{
+			Online: opts.OnlineOnly,
+			Local:  opts.LocalOnly,
+			API:    opts.API,
+		})
+		return
+	}
+
 	room := opts.Room
 	var localServerErrs <-chan error
 	if opts.HostMode {
 		room = prepareHostRoom(room)
-		localServerErrs, err = startLocalServer(opts.Port)
+		localServerErrs, err = startLocalServer(opts.Port, opts.Password)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -112,19 +126,74 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Send join message with password
 	err = conn.conn.WriteJSON(Message{
-		Type: "join",
-		Nick: nick,
-		Room: room,
+		Type:     "join",
+		Nick:     nick,
+		Room:     room,
+		Password: opts.Password,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Check for password rejection before starting TUI
+	if !opts.HostMode {
+		var firstMsg Message
+		err = conn.conn.ReadJSON(&firstMsg)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if firstMsg.Type == "error" && firstMsg.Text == "invalid_password" {
+			// Prompt for password
+			fmt.Print("Room requires a password: ")
+			pass, _ := reader.ReadString('\n')
+			pass = strings.TrimSpace(pass)
+
+			conn.conn.Close()
+
+			// Reconnect with the password
+			conn, err = connectWebSocket(serverURL)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			err = conn.conn.WriteJSON(Message{
+				Type:     "join",
+				Nick:     nick,
+				Room:     room,
+				Password: pass,
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			err = conn.conn.ReadJSON(&firstMsg)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if firstMsg.Type == "error" && firstMsg.Text == "invalid_password" {
+				fmt.Println("Wrong password.")
+				conn.conn.Close()
+				os.Exit(1)
+			}
+		}
+
+		// Push the first message back so the TUI can consume it
+		conn.firstMsg = &firstMsg
+	}
+
 	if cfg.Color != "" {
 		conn.conn.WriteJSON(Message{
 			Type:  "color",
 			Color: cfg.Color,
 		})
+	}
+
+	if opts.HostMode {
+		startLANBroadcaster(room, opts.Port, nick)
 	}
 
 	model := NewModel(conn, nick, room)
@@ -165,6 +234,11 @@ func parseArgs(args []string) (cliOptions, error) {
 		if !strings.HasPrefix(arg, "-") {
 			if len(positionals) == 0 && arg == "host" {
 				opts.HostMode = true
+				continue
+			}
+
+			if len(positionals) == 0 && arg == "discover" {
+				opts.DiscoverMode = true
 				continue
 			}
 
@@ -237,6 +311,22 @@ func parseArgs(args []string) (cliOptions, error) {
 			}
 			opts.Port = port
 
+		case "password":
+			if !hasValue {
+				i++
+				if i >= len(args) {
+					return opts, errors.New("--password requires a value")
+				}
+				value = args[i]
+			}
+			opts.Password = value
+
+		case "online":
+			opts.OnlineOnly = true
+
+		case "local":
+			opts.LocalOnly = true
+
 		default:
 			return opts, fmt.Errorf("unknown flag %s", arg)
 		}
@@ -257,6 +347,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
   termchat [options] [ROOM]
   termchat host [ROOM] [options]
+  termchat discover [--online] [--local]
 
 Cloud rooms:
   termchat
@@ -267,20 +358,29 @@ LAN host mode:
   termchat host
   termchat host FROG
   termchat host --port 9000
-  termchat host FROG --port 9000
+  termchat host FROG --port 9000 --password secret
 
 LAN join:
   termchat FROG --host 192.168.1.42
   termchat FROG --host 192.168.1.42 --port 9000
+  termchat FROG --host 192.168.1.42 --password secret
+
+Discover rooms:
+  termchat discover              Show online + LAN rooms
+  termchat discover --online     Show only online rooms
+  termchat discover --local      Show only LAN rooms
 
 Options:
   --room CODE       Join an existing room by code
-  --host ADDRESS   Connect to a LAN host by IP or hostname
-  --port PORT      LAN websocket port (default: %d)
-  --server URL     WebSocket server URL (default: %s)
-  --api URL        API server URL (default: %s)
-  --version        Show version and exit
-  --help, -h       Show this help and exit
+  --host ADDRESS    Connect to a LAN host by IP or hostname
+  --port PORT       LAN websocket port (default: %d)
+  --password PASS   Room password (for hosting or joining)
+  --server URL      WebSocket server URL (default: %s)
+  --api URL         API server URL (default: %s)
+  --online          Discover: show only online rooms
+  --local           Discover: show only LAN rooms
+  --version         Show version and exit
+  --help, -h        Show this help and exit
 `, defaultLANPort, DefaultWS, DefaultAPI)
 }
 
@@ -307,8 +407,12 @@ func prepareHostRoom(room string) string {
 	return room
 }
 
-func startLocalServer(port int) (<-chan error, error) {
+func startLocalServer(port int, password string) (<-chan error, error) {
 	chatserver.SetLogOutput(io.Discard)
+
+	if password != "" {
+		chatserver.SetInitialPassword(password)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

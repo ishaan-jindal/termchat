@@ -359,8 +359,11 @@ func renderUsers(m Model) string {
 		joined := relativeTime(user.JoinedAt)
 
 		status := ""
+		if user.IsHost {
+			status += "👑"
+		}
 		if user.Typing {
-			status = "✍ "
+			status += "✍ "
 		}
 
 		coloredNick := lipgloss.NewStyle().
@@ -461,7 +464,7 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 		m.messages = append(
 			m.messages,
 			systemStyle.Render(
-				"Commands: /help /clear /nick /color /quit",
+				"Commands: /help /clear /nick /color /password /quit",
 			),
 		)
 
@@ -513,6 +516,24 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 		cfg := loadConfig()
 		cfg.Color = color
 		saveConfig(cfg)
+
+		return true, false
+	case "/password":
+		if len(parts) < 2 {
+			// No argument means remove the password
+			m.conn.conn.WriteJSON(Message{
+				Type:     "set_password",
+				Password: "",
+			})
+			return true, false
+		}
+
+		newPass := strings.Join(parts[1:], " ")
+
+		m.conn.conn.WriteJSON(Message{
+			Type:     "set_password",
+			Password: newPass,
+		})
 
 		return true, false
 	}

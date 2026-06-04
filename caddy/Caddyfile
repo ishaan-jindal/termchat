@@ -1,6 +1,7 @@
 http://localhost {
 
     reverse_proxy /ws* websocket:8080
+    reverse_proxy /discover websocket:8080
 
     reverse_proxy api:3000
 }
