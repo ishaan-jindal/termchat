@@ -360,10 +360,10 @@ func renderUsers(m Model) string {
 
 		status := ""
 		if user.IsHost {
-			status += "👑"
+			status += "[host] "
 		}
 		if user.Typing {
-			status += "✍ "
+			status += "[...] "
 		}
 
 		coloredNick := lipgloss.NewStyle().

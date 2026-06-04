@@ -38,7 +38,7 @@ func runDiscover(opts discoverOptions) {
 
 func discoverOnline(apiURL string) {
 	fmt.Println("╔══════════════════════════════════════╗")
-	fmt.Println("║         ☁  ONLINE ROOMS              ║")
+	fmt.Println("║          ONLINE ROOMS                ║")
 	fmt.Println("╚══════════════════════════════════════╝")
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -85,9 +85,9 @@ func discoverOnline(apiURL string) {
 		strings.Repeat("─", 10))
 
 	for _, room := range rooms {
-		status := "🔓 open"
+		status := "[open]"
 		if room.HasPassword {
-			status = "🔒 locked"
+			status = "[locked]"
 		}
 
 		host := room.HostNick
@@ -117,7 +117,7 @@ type lanBeacon struct {
 
 func discoverLAN() {
 	fmt.Println("╔══════════════════════════════════════╗")
-	fmt.Println("║         📡  LAN ROOMS                ║")
+	fmt.Println("║           LAN ROOMS                  ║")
 	fmt.Println("╚══════════════════════════════════════╝")
 	fmt.Println("  Scanning local network...")
 
