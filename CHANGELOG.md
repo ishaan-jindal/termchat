@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [cli-v1.1.1] - 2026-06-25
 
 ### Fixed
 
