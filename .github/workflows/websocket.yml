@@ -7,6 +7,7 @@ on:
 
     paths:
       - "server/**"
+      - "shared/**"
       - "Dockerfile.server"
 
 jobs:
