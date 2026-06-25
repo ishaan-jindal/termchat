@@ -80,6 +80,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	roomsMutex.Lock()
 	room, exists := rooms[client.RoomID]
 
 	if !exists {
@@ -91,6 +92,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		rooms[client.RoomID] = room
 	}
+	roomsMutex.Unlock()
 
 	// Password check
 	room.Mutex.Lock()
@@ -150,7 +152,16 @@ func readPump(client *Client) {
 			return
 		}
 
-		client.LastActivity = time.Now()
+		// Update last activity with lock to prevent race conditions
+		roomsMutex.RLock()
+		room := rooms[client.RoomID]
+		roomsMutex.RUnlock()
+
+		if room != nil {
+			room.Mutex.Lock()
+			client.LastActivity = time.Now()
+			room.Mutex.Unlock()
+		}
 
 		now := time.Now()
 		filtered := []time.Time{}
@@ -337,7 +348,9 @@ func writePump(client *Client) {
 }
 
 func broadcastToRoom(roomID string, msg Message) {
+	roomsMutex.RLock()
 	room, exists := rooms[roomID]
+	roomsMutex.RUnlock()
 
 	if !exists {
 		return
@@ -371,22 +384,22 @@ func broadcastToRoom(roomID string, msg Message) {
 }
 
 func cleanupClient(client *Client) {
+	roomsMutex.RLock()
 	room, exists := rooms[client.RoomID]
+	roomsMutex.RUnlock()
 
 	if exists {
-		// Broadcast leave message BEFORE removal
-		broadcastToRoom(client.RoomID, Message{
-			Type: "system",
-			Text: client.Nickname + " left the room",
-		})
-
 		room.Mutex.Lock()
 
+		// Remove client from room first so broadcasts don't try to write
+		// to the disconnecting client's closed connection.
 		delete(room.Clients, client)
 
 		empty := len(room.Clients) == 0
 
 		// Host transfer: if this client was the host, pick the next oldest
+		var newHostNick string
+
 		if room.Host == client && !empty {
 			room.Host = nil
 			for c := range room.Clients {
@@ -395,24 +408,30 @@ func cleanupClient(client *Client) {
 				}
 			}
 
-			newHostNick := ""
 			if room.Host != nil {
 				newHostNick = room.Host.Nickname
 			}
-			room.Mutex.Unlock()
+		}
 
-			if newHostNick != "" {
-				broadcastToRoom(client.RoomID, Message{
-					Type: "system",
-					Text: newHostNick + " is now the host",
-				})
-			}
-		} else {
-			room.Mutex.Unlock()
+		room.Mutex.Unlock()
+
+		// Broadcast now — client is no longer in the room, won't receive
+		broadcastToRoom(client.RoomID, Message{
+			Type: "system",
+			Text: client.Nickname + " left the room",
+		})
+
+		if newHostNick != "" {
+			broadcastToRoom(client.RoomID, Message{
+				Type: "system",
+				Text: newHostNick + " is now the host",
+			})
 		}
 
 		if empty {
+			roomsMutex.Lock()
 			delete(rooms, room.ID)
+			roomsMutex.Unlock()
 		}
 	}
 
@@ -426,7 +445,9 @@ func cleanupClient(client *Client) {
 }
 
 func broadcastUsersList(roomID string) {
+	roomsMutex.RLock()
 	room, exists := rooms[roomID]
+	roomsMutex.RUnlock()
 
 	if !exists {
 		return
@@ -520,7 +541,14 @@ func cleanupIdleClients() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		roomsMutex.RLock()
+		roomsCopy := make([]*Room, 0, len(rooms))
 		for _, room := range rooms {
+			roomsCopy = append(roomsCopy, room)
+		}
+		roomsMutex.RUnlock()
+
+		for _, room := range roomsCopy {
 
 			room.Mutex.Lock()
 
@@ -552,7 +580,14 @@ func cleanupTypingIndicators() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		roomsMutex.RLock()
+		roomsCopy := make([]*Room, 0, len(rooms))
 		for _, room := range rooms {
+			roomsCopy = append(roomsCopy, room)
+		}
+		roomsMutex.RUnlock()
+
+		for _, room := range roomsCopy {
 
 			room.Mutex.Lock()
 

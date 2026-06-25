@@ -126,15 +126,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Start writePump goroutine to serialize WebSocket writes
+	go writePump(conn)
+
 	// Send join message with password
-	err = conn.conn.WriteJSON(Message{
+	conn.Send <- Message{
 		Type:     "join",
 		Nick:     nick,
 		Room:     room,
 		Password: opts.Password,
-	})
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	// Check for password rejection before starting TUI
@@ -151,6 +151,8 @@ func main() {
 			pass, _ := reader.ReadString('\n')
 			pass = strings.TrimSpace(pass)
 
+			// Signal writePump to stop
+			close(conn.done)
 			conn.conn.Close()
 
 			// Reconnect with the password
@@ -159,14 +161,14 @@ func main() {
 				log.Fatal(err)
 			}
 
-			err = conn.conn.WriteJSON(Message{
+			// Restart writePump
+			go writePump(conn)
+
+			conn.Send <- Message{
 				Type:     "join",
 				Nick:     nick,
 				Room:     room,
 				Password: pass,
-			})
-			if err != nil {
-				log.Fatal(err)
 			}
 
 			err = conn.conn.ReadJSON(&firstMsg)
@@ -186,10 +188,10 @@ func main() {
 	}
 
 	if cfg.Color != "" {
-		conn.conn.WriteJSON(Message{
+		conn.Send <- Message{
 			Type:  "color",
 			Color: cfg.Color,
-		})
+		}
 	}
 
 	if opts.HostMode {
@@ -211,6 +213,14 @@ func main() {
 	_, err = p.Run()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Close writePump by closing the done channel
+	select {
+	case <-conn.done:
+		// writePump already stopped
+	default:
+		close(conn.done)
 	}
 
 	conn.conn.Close()

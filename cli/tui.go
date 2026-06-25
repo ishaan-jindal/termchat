@@ -161,10 +161,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history = append(m.history, text)
 				m.historyIndex = len(m.history)
 
-				m.conn.conn.WriteJSON(Message{
+				select {
+				case m.conn.Send <- Message{
 					Type: "message",
 					Text: text,
-				})
+				}:
+				default:
+					// Buffer full, log but don't block TUI
+				}
 				m.input.Reset()
 			}
 			return m, nil
@@ -177,9 +181,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.input.Value() != previousValue {
 			if time.Since(m.lastTypingSent) > 2*time.Second {
-				m.conn.conn.WriteJSON(Message{
+				select {
+				case m.conn.Send <- Message{
 					Type: "typing",
-				})
+				}:
+				default:
+				}
 				m.lastTypingSent = time.Now()
 			}
 		}
@@ -480,10 +487,13 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 
 		newNick := parts[1]
 
-		m.conn.conn.WriteJSON(Message{
+		select {
+		case m.conn.Send <- Message{
 			Type:    "nick",
 			NewNick: newNick,
-		})
+		}:
+		default:
+		}
 
 		m.nick = newNick
 
@@ -508,10 +518,13 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 			return true, false
 		}
 
-		m.conn.conn.WriteJSON(Message{
+		select {
+		case m.conn.Send <- Message{
 			Type:  "color",
 			Color: color,
-		})
+		}:
+		default:
+		}
 
 		cfg := loadConfig()
 		cfg.Color = color
@@ -521,19 +534,25 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 	case "/password":
 		if len(parts) < 2 {
 			// No argument means remove the password
-			m.conn.conn.WriteJSON(Message{
+			select {
+			case m.conn.Send <- Message{
 				Type:     "set_password",
 				Password: "",
-			})
+			}:
+			default:
+			}
 			return true, false
 		}
 
 		newPass := strings.Join(parts[1:], " ")
 
-		m.conn.conn.WriteJSON(Message{
+		select {
+		case m.conn.Send <- Message{
 			Type:     "set_password",
 			Password: newPass,
-		})
+		}:
+		default:
+		}
 
 		return true, false
 	}

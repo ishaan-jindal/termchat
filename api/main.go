@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -43,12 +45,25 @@ func main() {
 	// Binary downloads
 	r.Get("/bin/{binary}", binaryHandler)
 
-	addr := ":" + apiPort
+	server := &http.Server{
+		Addr:    ":" + apiPort,
+		Handler: r,
+	}
 
-	log.Println("api server running on", addr)
+	// Handle graceful shutdown on SIGTERM/SIGINT
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		<-sigCh
 
-	err := http.ListenAndServe(addr, r)
-	if err != nil {
+		log.Println("shutdown signal received")
+		server.Close()
+	}()
+
+	log.Println("api server running on", server.Addr)
+
+	err := server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

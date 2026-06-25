@@ -149,7 +149,7 @@ func discoverLAN() {
 	}
 
 	fmt.Println()
-	fmt.Println("  Join with: termchat <ROOM> --host <ADDRESS>")
+	fmt.Println("  Join with: termchat <ROOM> --host <ADDRESS> --port <PORT>")
 }
 
 func listenForBeacons(timeout time.Duration) []lanBeacon {

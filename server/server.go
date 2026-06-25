@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"termchat/shared"
 )
@@ -38,18 +40,66 @@ func StartServer(addr string) error {
 	mux.HandleFunc("/ws", handleWebSocket)
 	mux.HandleFunc("/discover", handleDiscover)
 
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
+	// Handle graceful shutdown on SIGTERM/SIGINT
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+		<-sigCh
+
+		logger.Println("shutdown signal received, closing connections")
+
+		// Close all client connections gracefully
+		roomsMutex.RLock()
+		roomsCopy := make([]*Room, 0, len(rooms))
+		for _, room := range rooms {
+			roomsCopy = append(roomsCopy, room)
+		}
+		roomsMutex.RUnlock()
+
+		for _, room := range roomsCopy {
+			room.Mutex.Lock()
+			for client := range room.Clients {
+				// Notify client of shutdown
+				select {
+				case client.Send <- Message{
+					Type: "system",
+					Text: "server shutting down",
+				}:
+				default:
+				}
+				// Close connection
+				client.Conn.Close()
+			}
+			room.Mutex.Unlock()
+		}
+
+		server.Close()
+	}()
+
 	logger.Println("websocket server running on", addr)
 
 	go cleanupIdleClients()
 	go cleanupTypingIndicators()
 
-	return http.ListenAndServe(addr, mux)
+	return server.ListenAndServe()
 }
 
 func handleDiscover(w http.ResponseWriter, r *http.Request) {
 	var roomList []shared.RoomInfo
 
+	roomsMutex.RLock()
+	roomsCopy := make([]*Room, 0, len(rooms))
 	for _, room := range rooms {
+		roomsCopy = append(roomsCopy, room)
+	}
+	roomsMutex.RUnlock()
+
+	for _, room := range roomsCopy {
 		room.Mutex.Lock()
 
 		hostNick := ""

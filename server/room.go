@@ -11,4 +11,7 @@ type Room struct {
 	Mutex    sync.Mutex
 }
 
-var rooms = map[string]*Room{}
+var (
+	rooms      = map[string]*Room{}
+	roomsMutex sync.RWMutex
+)
