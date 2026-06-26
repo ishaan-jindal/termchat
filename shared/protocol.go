@@ -1,15 +1,16 @@
 package shared
 
 type Message struct {
-	Type     string     `json:"type"`
-	Nick     string     `json:"nick,omitempty"`
-	Room     string     `json:"room,omitempty"`
-	Text     string     `json:"text,omitempty"`
-	NewNick  string     `json:"new_nick,omitempty"`
-	Color    string     `json:"color,omitempty"`
-	Password string     `json:"password,omitempty"`
-	Messages []Message  `json:"messages,omitempty"`
-	Users    []UserInfo `json:"users,omitempty"`
+	Type      string     `json:"type"`
+	Nick      string     `json:"nick,omitempty"`
+	Room      string     `json:"room,omitempty"`
+	Text      string     `json:"text,omitempty"`
+	NewNick   string     `json:"new_nick,omitempty"`
+	Color     string     `json:"color,omitempty"`
+	Password  string     `json:"password,omitempty"`
+	Timestamp int64      `json:"timestamp,omitempty"`
+	Messages  []Message  `json:"messages,omitempty"`
+	Users     []UserInfo `json:"users,omitempty"`
 }
 
 type UserInfo struct {

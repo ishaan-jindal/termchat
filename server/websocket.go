@@ -358,6 +358,8 @@ func broadcastToRoom(roomID string, msg Message) {
 
 	room.Mutex.Lock()
 
+	msg.Timestamp = time.Now().UnixMilli()
+
 	if msg.Type == "message" || msg.Type == "system" {
 		room.History = append(room.History, msg)
 
