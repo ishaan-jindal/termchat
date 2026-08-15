@@ -3,17 +3,26 @@ package shared
 import "testing"
 
 func TestGenerateRoomCode(t *testing.T) {
-	seen := map[string]bool{}
-
 	for i := 0; i < 1000; i++ {
 		code := GenerateRoomCode()
 
 		if !IsValidRoomCode(code) {
 			t.Fatalf("GenerateRoomCode() = %q, want valid room code", code)
 		}
+	}
+}
+
+func TestGenerateRoomCodeNoEarlyCollisions(t *testing.T) {
+	// With 36^4 = 1,679,616 possible codes, 50 draws collide with
+	// probability ~0.07% (birthday bound), so this is a stable regression
+	// check for generation breaking (e.g. returning a constant).
+	seen := map[string]bool{}
+
+	for i := 0; i < 50; i++ {
+		code := GenerateRoomCode()
 
 		if seen[code] {
-			t.Fatalf("GenerateRoomCode() returned duplicate %q in 1000 draws", code)
+			t.Fatalf("GenerateRoomCode() returned duplicate %q in 50 draws", code)
 		}
 
 		seen[code] = true
