@@ -44,12 +44,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	client := &Client{
-		Conn:         conn,
-		Send:         make(chan Message, 32),
-		JoinedAt:     time.Now(),
-		LastActivity: time.Now(),
-	}
+	client := newClient(conn)
 
 	// First message MUST be join message
 	var joinMsg Message
@@ -66,14 +61,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client.Nickname = sanitizeInput(joinMsg.Nick)
+	client.mu.Lock()
+	client.Nickname = truncateRunes(sanitizeInput(joinMsg.Nick), maxNickLength)
 	if client.Nickname == "" {
 		client.Nickname = "anonymous"
 	}
-	if len(client.Nickname) > maxNickLength {
-		client.Nickname = client.Nickname[:maxNickLength]
-	}
 	client.Color = defaultColorForNick(client.Nickname)
+	client.mu.Unlock()
+
 	client.RoomID = shared.NormalizeRoomCode(joinMsg.Room)
 	if !shared.IsValidRoomCode(client.RoomID) {
 		conn.Close()
@@ -117,20 +112,22 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	copy(history, room.History)
 	room.Mutex.Unlock()
 
+	client.mu.Lock()
 	logger.Printf("%s joined room %s\n", client.Nickname, client.RoomID)
+	client.mu.Unlock()
 
 	// Start writer FIRST
 	go writePump(client)
 
-	client.Send <- Message{
+	client.trySend(Message{
 		Type:     "history",
 		Messages: history,
-	}
+	})
 
 	// Broadcast join event
 	broadcastToRoom(client.RoomID, Message{
 		Type: "system",
-		Text: client.Nickname + " joined the room",
+		Text: client.nickname() + " joined the room",
 	})
 
 	// Update User list
@@ -138,6 +135,20 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Start reader loop
 	readPump(client)
+}
+
+func (c *Client) nickname() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.Nickname
+}
+
+func (c *Client) color() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.Color
 }
 
 func readPump(client *Client) {
@@ -152,16 +163,10 @@ func readPump(client *Client) {
 			return
 		}
 
-		// Update last activity with lock to prevent race conditions
-		roomsMutex.RLock()
-		room := rooms[client.RoomID]
-		roomsMutex.RUnlock()
-
-		if room != nil {
-			room.Mutex.Lock()
-			client.LastActivity = time.Now()
-			room.Mutex.Unlock()
-		}
+		// Update last activity
+		client.mu.Lock()
+		client.LastActivity = time.Now()
+		client.mu.Unlock()
 
 		now := time.Now()
 		filtered := []time.Time{}
@@ -171,7 +176,7 @@ func readPump(client *Client) {
 			}
 		}
 		client.MessageTimestamps = filtered
-		if len(client.MessageTimestamps) >= 5 {
+		if len(client.MessageTimestamps) >= maxMessagesPerSecond {
 			continue
 		}
 		client.MessageTimestamps = append(
@@ -179,56 +184,25 @@ func readPump(client *Client) {
 			now,
 		)
 
-		msg.Text = sanitizeInput(msg.Text)
-		msg.NewNick = sanitizeInput(msg.NewNick)
-
-		if len(msg.Text) > maxMessageLength {
-			msg.Text = msg.Text[:maxMessageLength]
-		}
-
-		if len(msg.NewNick) > maxNickLength {
-			msg.NewNick = msg.NewNick[:maxNickLength]
-		}
+		msg.Text = truncateRunes(sanitizeInput(msg.Text), maxMessageLength)
+		msg.NewNick = truncateRunes(sanitizeInput(msg.NewNick), maxNickLength)
 
 		if msg.Type == "nick" {
+			client.mu.Lock()
 			oldNick := client.Nickname
-
-			client.Nickname = sanitizeInput(msg.NewNick)
-			if len(client.Nickname) > maxNickLength {
-				client.Nickname = client.Nickname[:maxNickLength]
-			}
+			client.Nickname = msg.NewNick
 			if client.Nickname == "" {
 				client.Nickname = "anonymous"
 			}
 			client.Color = defaultColorForNick(client.Nickname)
+			client.mu.Unlock()
 
 			broadcastToRoom(client.RoomID, Message{
 				Type: "system",
-				Text: oldNick + " is now known as " + client.Nickname,
+				Text: oldNick + " is now known as " + client.nickname(),
 			})
 
 			broadcastUsersList(client.RoomID)
-
-			continue
-		}
-
-		if msg.Type == "users" {
-			room := rooms[client.RoomID]
-
-			room.Mutex.Lock()
-
-			var users []string
-
-			for c := range room.Clients {
-				users = append(users, c.Nickname)
-			}
-
-			room.Mutex.Unlock()
-
-			client.Send <- Message{
-				Type: "users_list",
-				Text: strings.Join(users, ", "),
-			}
 
 			continue
 		}
@@ -237,31 +211,39 @@ func readPump(client *Client) {
 			if !shared.IsValidHexColor(msg.Color) {
 				continue
 			}
+
+			client.mu.Lock()
 			client.Color = msg.Color
+			client.mu.Unlock()
+
 			broadcastUsersList(client.RoomID)
 
-			client.Send <- Message{
+			client.trySend(Message{
 				Type: "system",
-				Text: "Color updated to " + client.Color,
-			}
+				Text: "Color updated to " + client.color(),
+			})
 
 			continue
 		}
 
 		if msg.Type == "set_password" {
+			roomsMutex.RLock()
 			room := rooms[client.RoomID]
+			roomsMutex.RUnlock()
+
 			if room == nil {
 				continue
 			}
+
 			room.Mutex.Lock()
 			isHost := room.Host == client
 			room.Mutex.Unlock()
 
 			if !isHost {
-				client.Send <- Message{
+				client.trySend(Message{
 					Type: "system",
 					Text: "Only the host can change the password",
-				}
+				})
 				continue
 			}
 
@@ -286,9 +268,11 @@ func readPump(client *Client) {
 		}
 
 		if msg.Type == "typing" {
+			client.mu.Lock()
 			wasTyping := client.Typing
 			client.Typing = true
 			client.LastTyping = time.Now()
+			client.mu.Unlock()
 
 			if !wasTyping {
 				broadcastUsersList(client.RoomID)
@@ -301,13 +285,21 @@ func readPump(client *Client) {
 			continue
 		}
 
-		if client.Typing {
-			client.Typing = false
-			broadcastUsersList(client.RoomID)
+		if msg.Type != "message" {
+			continue
 		}
 
-		msg.Nick = client.Nickname
-		msg.Color = client.Color
+		client.mu.Lock()
+		if client.Typing {
+			client.Typing = false
+			client.mu.Unlock()
+			broadcastUsersList(client.RoomID)
+		} else {
+			client.mu.Unlock()
+		}
+
+		msg.Nick = client.nickname()
+		msg.Color = client.color()
 
 		broadcastToRoom(client.RoomID, msg)
 	}
@@ -316,10 +308,7 @@ func readPump(client *Client) {
 func writePump(client *Client) {
 	ticker := time.NewTicker(pingPeriod)
 
-	defer func() {
-		ticker.Stop()
-		client.Conn.Close()
-	}()
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -334,6 +323,9 @@ func writePump(client *Client) {
 				logger.Println(err)
 				return
 			}
+
+		case <-client.isDone():
+			return
 
 		case <-ticker.C:
 			err := client.Conn.WriteMessage(
@@ -377,15 +369,14 @@ func broadcastToRoom(roomID string, msg Message) {
 	room.Mutex.Unlock()
 
 	for _, client := range clients {
-		select {
-		case client.Send <- msg:
-		default:
-			logger.Println("dropping message for slow client")
-		}
+		client.trySend(msg)
 	}
 }
 
 func cleanupClient(client *Client) {
+	// Signal writePump and all broadcasters to stop targeting this client.
+	client.close()
+
 	roomsMutex.RLock()
 	room, exists := rooms[client.RoomID]
 	roomsMutex.RUnlock()
@@ -411,7 +402,7 @@ func cleanupClient(client *Client) {
 			}
 
 			if room.Host != nil {
-				newHostNick = room.Host.Nickname
+				newHostNick = room.Host.nickname()
 			}
 		}
 
@@ -420,7 +411,7 @@ func cleanupClient(client *Client) {
 		// Broadcast now — client is no longer in the room, won't receive
 		broadcastToRoom(client.RoomID, Message{
 			Type: "system",
-			Text: client.Nickname + " left the room",
+			Text: client.nickname() + " left the room",
 		})
 
 		if newHostNick != "" {
@@ -437,13 +428,12 @@ func cleanupClient(client *Client) {
 		}
 	}
 
-	close(client.Send)
 	client.Conn.Close()
 
 	// Update User list
 	broadcastUsersList(client.RoomID)
 
-	logger.Printf("%s disconnected\n", client.Nickname)
+	logger.Printf("%s disconnected\n", client.nickname())
 }
 
 func broadcastUsersList(roomID string) {
@@ -460,6 +450,7 @@ func broadcastUsersList(roomID string) {
 	var users []UserInfo
 
 	for client := range room.Clients {
+		client.mu.Lock()
 		users = append(users, UserInfo{
 			Nick:     client.Nickname,
 			Color:    client.Color,
@@ -467,6 +458,7 @@ func broadcastUsersList(roomID string) {
 			Typing:   client.Typing,
 			IsHost:   room.Host == client,
 		})
+		client.mu.Unlock()
 	}
 
 	clients := make([]*Client, 0, len(room.Clients))
@@ -483,10 +475,7 @@ func broadcastUsersList(roomID string) {
 	}
 
 	for _, client := range clients {
-		select {
-		case client.Send <- msg:
-		default:
-		}
+		client.trySend(msg)
 	}
 }
 
@@ -537,6 +526,22 @@ func sanitizeInput(input string) string {
 	return strings.TrimSpace(input)
 }
 
+// truncateRunes limits s to at most max runes, never splitting a UTF-8
+// sequence.
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+
+	runes := []rune(s)
+
+	if len(runes) <= max {
+		return s
+	}
+
+	return string(runes[:max])
+}
+
 func cleanupIdleClients() {
 	ticker := time.NewTicker(1 * time.Minute)
 
@@ -563,10 +568,15 @@ func cleanupIdleClients() {
 			room.Mutex.Unlock()
 
 			for _, client := range clients {
-				if time.Since(client.LastActivity) > idleTimeout {
+				client.mu.Lock()
+				idle := time.Since(client.LastActivity) > idleTimeout
+				nick := client.Nickname
+				client.mu.Unlock()
+
+				if idle {
 					logger.Printf(
 						"disconnecting idle client %s",
-						client.Nickname,
+						nick,
 					)
 
 					client.Conn.Close()
@@ -596,12 +606,14 @@ func cleanupTypingIndicators() {
 			changed := false
 
 			for client := range room.Clients {
+				client.mu.Lock()
 				if client.Typing &&
 					time.Since(client.LastTyping) > 3*time.Second {
 
 					client.Typing = false
 					changed = true
 				}
+				client.mu.Unlock()
 			}
 
 			roomID := room.ID

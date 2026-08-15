@@ -37,6 +37,10 @@ func SetLogOutput(w io.Writer) {
 
 func StartServer(addr string) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
 	mux.HandleFunc("/ws", handleWebSocket)
 	mux.HandleFunc("/discover", handleDiscover)
 
@@ -104,7 +108,7 @@ func handleDiscover(w http.ResponseWriter, r *http.Request) {
 
 		hostNick := ""
 		if room.Host != nil {
-			hostNick = room.Host.Nickname
+			hostNick = room.Host.nickname()
 		}
 
 		info := shared.RoomInfo{

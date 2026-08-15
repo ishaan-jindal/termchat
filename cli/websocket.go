@@ -9,9 +9,9 @@ import (
 
 type Connection struct {
 	conn     *websocket.Conn
-	Send     chan Message          // buffered channel for writes
-	firstMsg *Message              // buffered first message (used after password check)
-	done     chan struct{}          // signal to stop writePump
+	Send     chan Message  // buffered channel for writes
+	firstMsg *Message      // buffered first message (used after password check)
+	done     chan struct{} // signal to stop writePump
 }
 
 func connectWebSocket(server string) (*Connection, error) {

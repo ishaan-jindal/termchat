@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Critical server crash: concurrent `rooms` map reads in the `set_password`
+  and legacy `users` handlers could trigger a fatal "concurrent map read and
+  map write" panic, disconnecting every room. All map access now happens
+  under the registry lock.
+- Server crash: "send on closed channel" panic when broadcasting to a
+  disconnecting client. `client.Send` is never closed anymore; lifecycle is
+  tracked with a per-client `done` channel (idempotent via `sync.Once`).
+- Data races on client state (nickname, color, typing, last activity) —
+  all mutable client fields are now guarded by a per-client mutex.
+- Data race on the API server's cached CLI version — now guarded by
+  `sync.RWMutex`.
+- Client messages of any type were previously broadcast to the room. Only
+  `message` is broadcast now; everything else is ignored.
+- `GenerateRoomCode` had a modulo bias making characters A–D ~14% more
+  likely. Replaced with rejection sampling for uniform distribution.
+- `IsValidRoomCode` no longer silently normalizes input; it validates the
+  exact code format (callers normalize first).
+- UTF-8 runes are no longer split mid-sequence when truncating nicknames
+  and messages.
+- Bootstrap scripts are now embedded into the API binary (`go:embed`) and
+  no longer read from disk at request time.
+- Health check endpoints (`/healthz`) on both the API and WebSocket servers.
+- `api/scripts` moved from the repo root; `go.work` removed — the project is
+  a single Go module.
+
+### CI / Build
+
+- CI now actually runs: `go vet`, `go build`, and `go test -race` cover all
+  packages (previously the module layout meant the root `./...` matched no
+  real code and the pipeline was permanently green).
+- Added `gofmt` and `go mod tidy -diff` checks.
+- Added a cross-compile matrix job covering all supported platforms.
+- Release workflow rewritten: `softprops/action-gh-release` (archived)
+  replaced with `gh release create`; the fragile `sleep 15` between build
+  and checksum jobs is gone (artifacts are assembled in one job); added
+  `concurrency` groups and `workflow_dispatch` support.
+- Added Dependabot, secret scanning (TruffleHog), and dependency review.
+- AUR publish workflow now writes the SSH key via an env var (multiline-safe)
+  instead of `echo` interpolation.
+- Docker images: pinned base images, non-root runtime user, healthchecks,
+  `.env` excluded from the build context.
+
 ## [cli-v1.1.1] - 2026-06-25
 
 ### Fixed

@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
@@ -17,20 +19,32 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+//go:embed scripts/bootstrap.sh
+var bootstrapScript string
+
+//go:embed scripts/bootstrap.ps1
+var windowsBootstrapScript string
+
 var (
 	publicAPIURL     string
-	latestCLIVersion string
+	cachedCLIVersion string
+	versionMu        sync.RWMutex
 )
 
-func main() {
-	apiPort := os.Getenv("API_PORT")
+func latestCLIVersion() string {
+	versionMu.RLock()
+	defer versionMu.RUnlock()
 
-	publicAPIURL = os.Getenv("PUBLIC_API_URL")
-	latestCLIVersion = fetchLatestCLIVersion()
+	return cachedCLIVersion
+}
 
-	go refreshCLIVersionLoop()
-
+func newRouter() chi.Router {
 	r := chi.NewRouter()
+
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
 
 	r.Get("/api/new", newRoomAPIHandler)
 
@@ -45,9 +59,20 @@ func main() {
 	// Binary downloads
 	r.Get("/bin/{binary}", binaryHandler)
 
+	return r
+}
+
+func main() {
+	apiPort := os.Getenv("API_PORT")
+
+	publicAPIURL = os.Getenv("PUBLIC_API_URL")
+	cachedCLIVersion = fetchLatestCLIVersion()
+
+	go refreshCLIVersionLoop()
+
 	server := &http.Server{
 		Addr:    ":" + apiPort,
-		Handler: r,
+		Handler: newRouter(),
 	}
 
 	// Handle graceful shutdown on SIGTERM/SIGINT
@@ -101,13 +126,7 @@ func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func renderBootstrapScript(w http.ResponseWriter, room string) {
-	content, err := os.ReadFile("scripts/bootstrap.sh")
-	if err != nil {
-		http.Error(w, "failed to load bootstrap script", http.StatusInternalServerError)
-		return
-	}
-
-	tmpl, err := template.New("bootstrap").Parse(string(content))
+	tmpl, err := template.New("bootstrap").Parse(bootstrapScript)
 	if err != nil {
 		http.Error(w, "failed to parse bootstrap script", http.StatusInternalServerError)
 		return
@@ -116,7 +135,7 @@ func renderBootstrapScript(w http.ResponseWriter, room string) {
 	data := map[string]string{
 		"Room":    room,
 		"ApiURL":  publicAPIURL,
-		"Version": latestCLIVersion,
+		"Version": latestCLIVersion(),
 	}
 
 	var out bytes.Buffer
@@ -133,13 +152,7 @@ func renderBootstrapScript(w http.ResponseWriter, room string) {
 }
 
 func renderWindowsBootstrap(w http.ResponseWriter, room string) {
-	content, err := os.ReadFile("scripts/bootstrap.ps1")
-	if err != nil {
-		http.Error(w, "failed to load bootstrap script", http.StatusInternalServerError)
-		return
-	}
-
-	tmpl, err := template.New("bootstrap").Parse(string(content))
+	tmpl, err := template.New("bootstrap").Parse(windowsBootstrapScript)
 	if err != nil {
 		http.Error(w, "failed to parse bootstrap script", http.StatusInternalServerError)
 		return
@@ -148,7 +161,7 @@ func renderWindowsBootstrap(w http.ResponseWriter, room string) {
 	data := map[string]string{
 		"Room":    room,
 		"ApiURL":  publicAPIURL,
-		"Version": latestCLIVersion,
+		"Version": latestCLIVersion(),
 	}
 
 	var out bytes.Buffer
@@ -217,7 +230,9 @@ func refreshCLIVersionLoop() {
 		version := fetchLatestCLIVersion()
 
 		if version != "" {
-			latestCLIVersion = version
+			versionMu.Lock()
+			cachedCLIVersion = version
+			versionMu.Unlock()
 			log.Println("updated latest cli version:", version)
 		}
 	}

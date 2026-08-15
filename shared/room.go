@@ -6,20 +6,27 @@ import (
 )
 
 func GenerateRoomCode() string {
-	bytes := make([]byte, RoomCodeLength)
+	out := make([]byte, RoomCodeLength)
 
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "FROG"
+	for i := range out {
+		for {
+			var b [1]byte
+
+			if _, err := rand.Read(b[:]); err != nil {
+				return "FROG"
+			}
+
+			// Rejection sampling: with b in [0, 256), taking b % len(charset)
+			// would bias the first 256%len(charset) characters. Accept only
+			// values in a range divisible by the charset size.
+			if int(b[0]) < 256-(256%len(RoomCodeCharset)) {
+				out[i] = RoomCodeCharset[int(b[0])%len(RoomCodeCharset)]
+				break
+			}
+		}
 	}
 
-	result := make([]byte, RoomCodeLength)
-
-	for i, b := range bytes {
-		result[i] = RoomCodeCharset[int(b)%len(RoomCodeCharset)]
-	}
-
-	return string(result)
+	return string(out)
 }
 
 func NormalizeRoomCode(room string) string {

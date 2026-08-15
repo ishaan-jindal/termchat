@@ -11,8 +11,10 @@ func IsValidHexColor(color string) bool {
 	return hexColorRegex.MatchString(color)
 }
 
+// IsValidRoomCode reports whether room is a well-formed room code.
+// The input must already be normalized (see NormalizeRoomCode); all callers
+// normalize before validating.
 func IsValidRoomCode(room string) bool {
-	room = NormalizeRoomCode(room)
 	if len(room) != RoomCodeLength {
 		return false
 	}

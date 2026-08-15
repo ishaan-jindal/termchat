@@ -32,6 +32,9 @@ This project is governed by the [Contributor Covenant](https://www.contributor-c
 - **Go 1.26+** — [Download](https://go.dev/dl/)
 - **Make** (optional, for convenience targets)
 
+The repository is a single Go module; any `go` command from the repo root
+covers all packages (`cli`, `api`, `server`, `shared`).
+
 ### Build
 
 ```bash
@@ -62,8 +65,8 @@ termchat/
   cli/          — Terminal UI client (Bubble Tea)
   server/       — WebSocket server + room management
   api/          — HTTP API server (Chi router)
+  api/scripts/  — Bootstrap installers (embedded into the API binary)
   shared/       — Shared types, validation, constants
-  scripts/      — Bootstrap installers
   caddy/        — Reverse proxy config
 ```
 

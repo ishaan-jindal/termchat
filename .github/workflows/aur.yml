@@ -17,11 +17,16 @@ on:
       AUR_SSH_PRIVATE_KEY:
         required: true
 
+permissions:
+  contents: read
+
 jobs:
 
   aur-publish:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+
+    timeout-minutes: 15
 
     env:
       GIT_SSH_COMMAND: ssh -i /root/.ssh/aur -o StrictHostKeyChecking=no
@@ -32,9 +37,11 @@ jobs:
         run: pacman -Sy --noconfirm git openssh
 
       - name: Setup SSH for AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p /root/.ssh
-          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > /root/.ssh/aur
+          printf '%s\n' "$AUR_SSH_KEY" > /root/.ssh/aur
           chmod 600 /root/.ssh/aur
           ssh-keyscan aur.archlinux.org >> /root/.ssh/known_hosts 2>/dev/null
 
@@ -62,9 +69,12 @@ jobs:
       - name: Extract checksums
         id: sums
         run: |
-          echo "amd64=$(grep 'termchat-linux-amd64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "arm64=$(grep 'termchat-linux-arm64$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-          echo "i686=$(grep 'termchat-linux-386$' checksums.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          {
+            echo "amd64=$(awk '$2 ~ /termchat-linux-amd64$/ {print $1}' checksums.txt)"
+            echo "arm64=$(awk '$2 ~ /termchat-linux-arm64$/ {print $1}' checksums.txt)"
+            echo "i686=$(awk '$2 ~ /termchat-linux-386$/ {print $1}' checksums.txt)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Clone AUR repo
         run: git clone ssh://aur@aur.archlinux.org/ishaans-termchat-bin.git aur-repo
@@ -80,15 +90,17 @@ jobs:
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.sums.outputs.arm64 }}')/" PKGBUILD
           sed -i "s/^sha256sums_i686=.*/sha256sums_i686=('${{ steps.sums.outputs.i686 }}')/" PKGBUILD
 
-          # Ensure source filenames include version to prevent cache collisions
-          sed -i 's|^source_x86_64=.*|source_x86_64=("termchat-linux-amd64-${pkgver}::${_base_url}/termchat-linux-amd64")|' PKGBUILD
-          sed -i 's|^source_aarch64=.*|source_aarch64=("termchat-linux-arm64-${pkgver}::${_base_url}/termchat-linux-arm64")|' PKGBUILD
-          sed -i 's|^source_i686=.*|source_i686=("termchat-linux-386-${pkgver}::${_base_url}/termchat-linux-386")|' PKGBUILD
+          # Ensure source filenames include version to prevent cache collisions.
+          # \\\$ expands to a literal $ for the sed replacement (pkgver/base_url
+          # are PKGBUILD variables, expanded by makepkg, not by this script).
+          sed -i "s|^source_x86_64=.*|source_x86_64=(\"termchat-linux-amd64-\${pkgver}::\${_base_url}/termchat-linux-amd64\")|" PKGBUILD
+          sed -i "s|^source_aarch64=.*|source_aarch64=(\"termchat-linux-arm64-\${pkgver}::\${_base_url}/termchat-linux-arm64\")|" PKGBUILD
+          sed -i "s|^source_i686=.*|source_i686=(\"termchat-linux-386-\${pkgver}::\${_base_url}/termchat-linux-386\")|" PKGBUILD
 
           # Ensure package() references versioned filenames
-          sed -i 's|_binary="termchat-linux-amd64.*"|_binary="termchat-linux-amd64-${pkgver}"|' PKGBUILD
-          sed -i 's|_binary="termchat-linux-arm64.*"|_binary="termchat-linux-arm64-${pkgver}"|' PKGBUILD
-          sed -i 's|_binary="termchat-linux-386.*"|_binary="termchat-linux-386-${pkgver}"|' PKGBUILD
+          sed -i "s|_binary=\"termchat-linux-amd64.*\"|_binary=\"termchat-linux-amd64-\${pkgver}\"|" PKGBUILD
+          sed -i "s|_binary=\"termchat-linux-arm64.*\"|_binary=\"termchat-linux-arm64-\${pkgver}\"|" PKGBUILD
+          sed -i "s|_binary=\"termchat-linux-386.*\"|_binary=\"termchat-linux-386-\${pkgver}\"|" PKGBUILD
 
           echo "=== Updated PKGBUILD ==="
           cat PKGBUILD
@@ -105,6 +117,9 @@ jobs:
         run: |
           cd aur-repo
           git add PKGBUILD .SRCINFO
-          git diff --cached --quiet && echo "No changes to push" && exit 0
+          if git diff --cached --quiet; then
+            echo "No changes to push"
+            exit 0
+          fi
           git commit -m "Update to v${{ steps.tag.outputs.version }}"
           git push

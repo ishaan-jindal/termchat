@@ -1,25 +1,31 @@
-FROM golang:1.26 AS builder
+FROM golang:1.26.3-bookworm AS builder
 
 WORKDIR /app
 
-COPY . .
+COPY go.mod go.sum ./
+RUN go mod download
 
-WORKDIR /app/api
+COPY api/ ./api/
+COPY shared/ ./shared/
 
-RUN go build -o api
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./api
 
-FROM debian:stable-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -r -u 10001 appuser
 
 WORKDIR /app
 
-COPY --from=builder /app/api/api .
+COPY --from=builder /out/api .
 
-COPY --from=builder /app/scripts ./scripts
+USER 10001
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/bin/sh", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/3000"]
 
 CMD ["./api"]
