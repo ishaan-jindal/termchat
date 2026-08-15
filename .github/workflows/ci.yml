@@ -21,10 +21,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -90,10 +90,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -106,3 +106,14 @@ jobs:
           CGO_ENABLED=0 go build -o /tmp/cli${{ matrix.ext }} ./cli
           CGO_ENABLED=0 go build -o /tmp/server${{ matrix.ext }} ./server/cmd/server
           CGO_ENABLED=0 go build -o /tmp/api${{ matrix.ext }} ./api
+
+  # Single check that depends on every other job. Branch protection on main
+  # requires `lint-and-test` and `verify` by name; if the matrix grows, this
+  # requirement does not need updating.
+  verify:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, cross-compile]
+
+    steps:
+      - name: All required checks passed
+        run: echo "All required checks passed"
