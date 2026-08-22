@@ -672,7 +672,7 @@ func TestReactionRendering(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(m.messages))
 	}
 
-	if !strings.Contains(m.messages[0].rendered, "[+1 x2, laugh]") {
+	if !strings.Contains(m.messages[0].rendered, "[\U0001f44d x2, \U0001f606]") {
 		t.Errorf("rendered = %q, want reaction suffix", m.messages[0].rendered)
 	}
 }
@@ -692,8 +692,24 @@ func TestReactionUpdateRerenders(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(m.messages))
 	}
 
-	if !strings.Contains(m.messages[0].rendered, "[+1 x2]") {
+	if !strings.Contains(m.messages[0].rendered, "[\U0001f44d x2]") {
 		t.Errorf("rendered = %q, want reaction suffix after update", m.messages[0].rendered)
+	}
+}
+
+func TestUnknownReactionFallsBackToName(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:      "message",
+		ID:        7,
+		Nick:      "bob",
+		Text:      "hello",
+		Reactions: []Reaction{{Name: "mystery", Count: 1}},
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "[mystery]") {
+		t.Errorf("rendered = %q, want raw name for unknown reaction", m.messages[0].rendered)
 	}
 }
 

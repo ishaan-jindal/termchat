@@ -9,9 +9,9 @@
   shown in the TUI and preserved in history replay. (by @ishaan-jindal)
 - `/reply ID MESSAGE` quotes a message; the server resolves the quoted
   nick/text from history and the TUI renders it as a quote line. (by @ishaan-jindal)
-- `/react ID REACTION` toggles per-user reactions, rendered inline as
-  `[+1 x2]` and included in history replay. Supported names: +1, -1, laugh,
-  heart, wow, eyes, fire, clap. (by @ishaan-jindal)
+- `/react ID REACTION` toggles per-user reactions, rendered inline as emoji
+  like `[👍 x2]` and included in history replay. Supported names: +1, -1,
+  laugh, heart, wow, eyes, fire, clap. (by @ishaan-jindal)
 - Platform-specific system notifications (Linux, macOS, Windows) shown on
   new messages, plus TUI rendering for message display. (by @AaryanKumarSingh136)
 - `/users` prints the current room roster into the chat log, with the host

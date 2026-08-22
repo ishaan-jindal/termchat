@@ -202,6 +202,17 @@ func commandSuggestions(prefix string) []suggestion {
 	return out
 }
 
+// emojiGlyph returns the glyph for a shortcode name, or empty if unknown.
+func emojiGlyph(name string) string {
+	for _, e := range emojis {
+		if e.name == name {
+			return e.glyph
+		}
+	}
+
+	return ""
+}
+
 func reactionSuggestions(query string) []suggestion {
 	query = strings.ToLower(query)
 
@@ -212,19 +223,9 @@ func reactionSuggestions(query string) []suggestion {
 			continue
 		}
 
-		glyph := ""
-
-		for _, e := range emojis {
-			if e.name == name {
-				glyph = e.glyph
-
-				break
-			}
-		}
-
 		out = append(out, suggestion{
 			primary: ":" + name + ":",
-			detail:  glyph,
+			detail:  emojiGlyph(name),
 			insert:  name,
 		})
 	}

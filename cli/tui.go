@@ -605,8 +605,8 @@ func formatQuote(msg Message, width int) string {
 	return systemStyle.Render(quote)
 }
 
-// formatReactions renders counts like "+1 x2, heart" with a leading blank
-// line separator: " [+1 x2]".
+// formatReactions renders reaction counts as emoji glyphs instead of raw
+// names, with a leading blank line separator.
 func formatReactions(reactions []Reaction) string {
 	if len(reactions) == 0 {
 		return ""
@@ -615,10 +615,16 @@ func formatReactions(reactions []Reaction) string {
 	parts := make([]string, 0, len(reactions))
 
 	for _, r := range reactions {
+		glyph := emojiGlyph(r.Name)
+
+		if glyph == "" {
+			glyph = r.Name
+		}
+
 		if r.Count > 1 {
-			parts = append(parts, fmt.Sprintf("%s x%d", r.Name, r.Count))
+			parts = append(parts, fmt.Sprintf("%s x%d", glyph, r.Count))
 		} else {
-			parts = append(parts, r.Name)
+			parts = append(parts, glyph)
 		}
 	}
 
