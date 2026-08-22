@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"termchat/shared"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -670,7 +672,7 @@ func TestReactionRendering(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(m.messages))
 	}
 
-	if !strings.Contains(m.messages[0].rendered, "[+1 x2, laugh]") {
+	if !strings.Contains(m.messages[0].rendered, "[\U0001f44d x2, \U0001f606]") {
 		t.Errorf("rendered = %q, want reaction suffix", m.messages[0].rendered)
 	}
 }
@@ -690,7 +692,494 @@ func TestReactionUpdateRerenders(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(m.messages))
 	}
 
-	if !strings.Contains(m.messages[0].rendered, "[+1 x2]") {
+	if !strings.Contains(m.messages[0].rendered, "[\U0001f44d x2]") {
 		t.Errorf("rendered = %q, want reaction suffix after update", m.messages[0].rendered)
+	}
+}
+
+func TestUnknownReactionFallsBackToName(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:      "message",
+		ID:        7,
+		Nick:      "bob",
+		Text:      "hello",
+		Reactions: []Reaction{{Name: "mystery", Count: 1}},
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "[mystery]") {
+		t.Errorf("rendered = %q, want raw name for unknown reaction", m.messages[0].rendered)
+	}
+}
+
+func TestCommandRegistryIntegrity(t *testing.T) {
+	seen := map[string]bool{}
+
+	for _, c := range commands {
+		if seen[c.name] {
+			t.Errorf("duplicate command %q", c.name)
+		}
+		seen[c.name] = true
+
+		if c.handler == nil {
+			t.Errorf("%q has no handler", c.name)
+		}
+
+		if !strings.HasPrefix(c.usage, c.name) {
+			t.Errorf("usage %q does not start with name %q", c.usage, c.name)
+		}
+
+		if strings.TrimSpace(c.description) == "" {
+			t.Errorf("%q has no description", c.name)
+		}
+	}
+
+	if len(commands) < 8 {
+		t.Errorf("registry = %d commands, want at least 8", len(commands))
+	}
+}
+
+func TestFilterCommands(t *testing.T) {
+	all := filterCommands("/")
+
+	if len(all) != len(commands) {
+		t.Fatalf("filter / = %d matches, want %d", len(all), len(commands))
+	}
+
+	matches := filterCommands("/RE")
+
+	if len(matches) != 2 || matches[0].name != "/reply" || matches[1].name != "/react" {
+		t.Fatalf("filter /RE = %+v, want /reply then /react", commandNames(matches))
+	}
+
+	if got := filterCommands("/zzz"); len(got) != 0 {
+		t.Fatalf("filter /zzz = %+v, want no matches", commandNames(got))
+	}
+}
+
+func commandNames(cmds []command) []string {
+	var out []string
+
+	for _, c := range cmds {
+		out = append(out, c.name)
+	}
+
+	return out
+}
+
+func TestHelpListsAllCommands(t *testing.T) {
+	m := testModel()
+
+	handled, _ := handleCommand(&m, "/help")
+
+	if !handled {
+		t.Fatal("expected handled")
+	}
+
+	if len(m.messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(m.messages))
+	}
+
+	for _, c := range commands {
+		if !strings.Contains(m.messages[0].rendered, c.usage) ||
+			!strings.Contains(m.messages[0].rendered, c.description) {
+			t.Errorf("help text missing %q: %q", c.usage, m.messages[0].rendered)
+		}
+	}
+}
+
+func typeRunes(t *testing.T, m Model, runes string) Model {
+	t.Helper()
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(runes)})
+
+	return m
+}
+
+func TestCompletionAutoOpenOnSlash(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/")
+
+	if !m.showPopup {
+		t.Fatal("popup should open when input becomes /")
+	}
+
+	matches := completionMatches(&m)
+
+	if len(matches) != len(commands) {
+		t.Fatalf("matches = %d, want all %d", len(matches), len(commands))
+	}
+
+	m = typeRunes(t, m, "nic")
+
+	matches = completionMatches(&m)
+
+	if len(matches) != 1 || matches[0].insert != "/nick " {
+		t.Fatalf("matches = %+v, want only /nick", matches)
+	}
+}
+
+func TestCompletionClosesOnNoMatchAndSpace(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/zz")
+
+	if m.showPopup {
+		t.Error("popup should close when nothing matches")
+	}
+
+	m = testModel()
+
+	m = typeRunes(t, m, "/nic")
+
+	if !m.showPopup {
+		t.Fatal("popup should be open for /nic")
+	}
+
+	m = typeRunes(t, m, " ")
+
+	if m.showPopup {
+		t.Error("popup should close once an argument is typed")
+	}
+}
+
+func TestCompletionTabOpensAndAccepts(t *testing.T) {
+	m := testModel()
+
+	m.input.SetValue("/col")
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if !m.showPopup {
+		t.Fatal("tab should open the popup for a slash prefix")
+	}
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.showPopup {
+		t.Error("second tab should accept and close the popup")
+	}
+
+	if got := m.input.Value(); got != "/color " {
+		t.Errorf("input = %q, want /color with trailing space", got)
+	}
+}
+
+func TestCompletionEnterInsertsWithoutSending(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/re")
+
+	matches := completionMatches(&m)
+
+	if len(matches) != 2 || matches[0].insert != "/reply " {
+		t.Fatalf("matches = %+v, want /reply first", matches)
+	}
+
+	drainSend(t, m) // discard the typing frame from the keystrokes
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if msgs := drainSend(t, m); len(msgs) != 0 {
+		t.Fatalf("sent = %+v, accept must not send anything", msgs)
+	}
+
+	if m.showPopup {
+		t.Error("popup should close after accepting")
+	}
+
+	if got := m.input.Value(); got != "/reply " {
+		t.Fatalf("input = %q, want inserted /reply with trailing space", got)
+	}
+
+	// Finishing the arguments and pressing enter dispatches the command.
+	m = typeRunes(t, m, "5 hi")
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	msgs := drainSend(t, m)
+
+	if len(msgs) != 1 || msgs[0].ReplyToID != 5 || msgs[0].Text != "hi" {
+		t.Fatalf("sent = %+v, want reply to 5", msgs)
+	}
+}
+
+func TestCompletionUpDownNavigation(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/")
+
+	down := tea.KeyMsg{Type: tea.KeyDown}
+	up := tea.KeyMsg{Type: tea.KeyUp}
+
+	m, _ = update(t, m, down)
+	m, _ = update(t, m, down)
+
+	if m.selected != 2 {
+		t.Fatalf("after two downs selected = %d, want 2", m.selected)
+	}
+
+	m, _ = update(t, m, up)
+
+	if m.selected != 1 {
+		t.Fatalf("after up selected = %d, want 1", m.selected)
+	}
+
+	for i := 0; i < 5; i++ {
+		m, _ = update(t, m, up)
+	}
+
+	if m.selected != 0 {
+		t.Fatalf("selected = %d, want clamped at 0", m.selected)
+	}
+
+	for i := 0; i < 20; i++ {
+		m, _ = update(t, m, down)
+	}
+
+	if m.selected != len(commands)-1 {
+		t.Fatalf("selected = %d, want clamped at %d", m.selected, len(commands)-1)
+	}
+}
+
+func TestCompletionEscDismisses(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/n")
+
+	if !m.showPopup {
+		t.Fatal("popup should be open")
+	}
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEscape})
+
+	if m.showPopup {
+		t.Error("esc should dismiss the popup")
+	}
+
+	// Typing again reopens and refilters.
+	m = typeRunes(t, m, "i")
+
+	matches := completionMatches(&m)
+
+	if !m.showPopup || len(matches) != 1 || matches[0].insert != "/nick " {
+		t.Fatalf(
+			"matches = %+v open = %v, want reopened on /nick",
+			matches,
+			m.showPopup,
+		)
+	}
+}
+
+func TestCompletionShrinksViewport(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	closed := m.viewport.Height
+
+	m = typeRunes(t, m, "/")
+
+	open := m.viewport.Height
+	want := len(filterCommands("/")) + 2 // rounded border
+
+	if closed-open != want {
+		t.Errorf("viewport shrank by %d rows, want %d", closed-open, want)
+	}
+
+	if open <= 0 {
+		t.Errorf("viewport height = %d while popup is open, want positive", open)
+	}
+}
+
+func TestViewRendersCompletionPopup(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if strings.Contains(m.View(), "/password [pass]") {
+		t.Error("closed popup rendered in view")
+	}
+
+	m = typeRunes(t, m, "/pass")
+
+	view := m.View()
+
+	if !strings.Contains(view, "/password [pass]") ||
+		!strings.Contains(view, "set or remove room password") {
+		t.Error("open popup not rendered with usage and description")
+	}
+}
+
+func TestEmojiTableIntegrity(t *testing.T) {
+	seen := map[string]bool{}
+
+	for _, e := range emojis {
+		if seen[e.name] {
+			t.Errorf("duplicate emoji shortcode %q", e.name)
+		}
+		seen[e.name] = true
+
+		if e.glyph == "" {
+			t.Errorf("shortcode %q has no glyph", e.name)
+		}
+	}
+
+	for _, name := range shared.ReactionNames {
+		if !seen[name] {
+			t.Errorf("reaction name %q missing from the emoji table", name)
+		}
+	}
+}
+
+func TestEmojiAutoOpenMidText(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	closed := m.viewport.Height
+
+	m = typeRunes(t, m, "hi :")
+
+	if !m.showPopup {
+		t.Fatal("popup should open on a bare colon mid-text")
+	}
+
+	matches := completionMatches(&m)
+
+	if len(matches) != len(emojis) {
+		t.Fatalf("matches = %d, want all %d", len(matches), len(emojis))
+	}
+
+	if got := m.viewport.Height; closed-got != len(emojis)+2 {
+		t.Errorf("viewport shrank by %d rows, want %d", closed-got, len(emojis)+2)
+	}
+
+	m = typeRunes(t, m, "fi")
+
+	matches = completionMatches(&m)
+
+	if len(matches) != 1 || matches[0].primary != ":fire:" || matches[0].insert != "\U0001f525 " {
+		t.Fatalf("matches = %+v, want only :fire:", matches)
+	}
+}
+
+func TestEmojiAcceptPreservesPrefix(t *testing.T) {
+	m := testModel()
+
+	// SetValue bypasses the refresh, so the popup starts closed.
+	m.input.SetValue("hi :hear")
+
+	drainSend(t, m) // discard typing frames as we go
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if !m.showPopup {
+		t.Fatal("tab should open the popup for :hear")
+	}
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.showPopup {
+		t.Error("second tab should accept and close the popup")
+	}
+
+	want := "hi \u2764\ufe0f "
+
+	if got := m.input.Value(); got != want {
+		t.Errorf("input = %q, want %q", got, want)
+	}
+
+	if msgs := drainSend(t, m); len(msgs) != 0 {
+		t.Fatalf("sent = %+v, accept must not send anything", msgs)
+	}
+}
+
+func TestEmojiSecondColonCloses(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "hi :fire:")
+
+	if m.showPopup {
+		t.Error("popup should close once the shortcode is terminated")
+	}
+
+	matches := completionMatches(&m)
+
+	if len(matches) != 0 {
+		t.Errorf("matches = %+v, want none", matches)
+	}
+}
+
+func TestReactArgSuggestions(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/react 7 f")
+
+	if !m.showPopup {
+		t.Fatal("popup should open for a /react name argument")
+	}
+
+	matches := completionMatches(&m)
+
+	if len(matches) != 1 || matches[0].primary != ":fire:" || matches[0].insert != "fire" {
+		t.Fatalf("matches = %+v, want only :fire: inserting fire", matches)
+	}
+
+	// Trailing space with a valid id lists every reaction.
+	m = testModel()
+	m = typeRunes(t, m, "/react 7 ")
+
+	matches = completionMatches(&m)
+
+	if len(matches) != len(shared.ReactionNames) {
+		t.Fatalf("matches = %d, want all %d", len(matches), len(shared.ReactionNames))
+	}
+
+	// A non-numeric id or a still-unfinished id suggests nothing.
+	for _, bad := range []string{"/react x f", "/react 7"} {
+		m := testModel()
+		m = typeRunes(t, m, bad)
+
+		if m.showPopup || len(completionMatches(&m)) != 0 {
+			t.Errorf("%q opened the react popup, want closed", bad)
+		}
+	}
+}
+
+func TestReactAcceptCompletesNameAndSends(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "/react 7 f")
+
+	drainSend(t, m) // discard the typing frame
+
+	// The popup is already open from typing; tab accepts in place.
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.showPopup {
+		t.Fatal("popup should close after accepting")
+	}
+
+	if got := m.input.Value(); got != "/react 7 fire" {
+		t.Fatalf("input = %q, want completed /react 7 fire", got)
+	}
+
+	m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	msgs := drainSend(t, m)
+
+	if len(msgs) != 1 || msgs[0].Type != "reaction" || msgs[0].ID != 7 || msgs[0].Text != "fire" {
+		t.Fatalf("sent = %+v, want reaction 7 fire", msgs)
+	}
+}
+
+func TestNoCommandSuggestionsMidText(t *testing.T) {
+	m := testModel()
+
+	m = typeRunes(t, m, "hello /ni")
+
+	if m.showPopup {
+		t.Error("commands should not be suggested mid-message")
 	}
 }
