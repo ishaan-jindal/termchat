@@ -38,10 +38,44 @@ func startTestServer(t *testing.T) *httptest.Server {
 
 	t.Cleanup(func() {
 		srv.Close()
+		waitForQuiescence(t)
 		resetState(t)
 	})
 
 	return srv
+}
+
+// waitForQuiescence blocks until every read/write pump has exited, so tests
+// can mutate the package-level limits without racing leftover goroutines
+// from earlier connections.
+func waitForQuiescence(t *testing.T) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for livePumps.Load() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("server pumps did not drain")
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// overrideLimit sets a package-level limit for the duration of the test,
+// waiting for quiescence on both set and restore.
+func overrideLimit[T any](t *testing.T, dst *T, val T) {
+	t.Helper()
+
+	waitForQuiescence(t)
+
+	old := *dst
+	*dst = val
+
+	t.Cleanup(func() {
+		waitForQuiescence(t)
+		*dst = old
+	})
 }
 
 func wsURL(t *testing.T, srv *httptest.Server) string {
@@ -727,9 +761,7 @@ func TestConcurrentTraffic(t *testing.T) {
 func TestHistoryCap(t *testing.T) {
 	srv := startTestServer(t)
 
-	old := maxMessagesPerSecond
-	maxMessagesPerSecond = 100
-	t.Cleanup(func() { maxMessagesPerSecond = old })
+	overrideLimit(t, &maxMessagesPerSecond, 100)
 
 	a := joinRoom(t, srv, "HIST", "alice", "")
 	defer a.close()
@@ -965,9 +997,7 @@ func TestHostSuccessionChain(t *testing.T) {
 func TestIdleDisconnect(t *testing.T) {
 	srv := startTestServer(t)
 
-	old := idleTimeout
-	idleTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { idleTimeout = old })
+	overrideLimit(t, &idleTimeout, 150*time.Millisecond)
 
 	c := joinRoom(t, srv, "IDLE", "idler", "")
 	defer c.close()
@@ -998,9 +1028,7 @@ func TestIdleDisconnect(t *testing.T) {
 func TestTypingExpiry(t *testing.T) {
 	srv := startTestServer(t)
 
-	old := typingExpiry
-	typingExpiry = 150 * time.Millisecond
-	t.Cleanup(func() { typingExpiry = old })
+	overrideLimit(t, &typingExpiry, 150*time.Millisecond)
 
 	a := joinRoom(t, srv, "TYPE", "alice", "")
 	defer a.close()
@@ -1075,9 +1103,7 @@ func waitUsers(t *testing.T, c *testClient, nicks ...string) []UserInfo {
 func TestPingEmission(t *testing.T) {
 	srv := startTestServer(t)
 
-	old := pingPeriod
-	pingPeriod = 150 * time.Millisecond
-	t.Cleanup(func() { pingPeriod = old })
+	overrideLimit(t, &pingPeriod, 150*time.Millisecond)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL(t, srv), nil)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -32,6 +33,8 @@ var (
 	idleTimeout          = 30 * time.Minute
 	typingExpiry         = 3 * time.Second
 )
+
+var livePumps atomic.Int64
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -161,6 +164,9 @@ func (c *Client) color() string {
 }
 
 func readPump(client *Client) {
+	livePumps.Add(1)
+	defer livePumps.Add(-1)
+
 	defer cleanupClient(client)
 
 	for {
@@ -361,6 +367,9 @@ func readPump(client *Client) {
 }
 
 func writePump(client *Client) {
+	livePumps.Add(1)
+	defer livePumps.Add(-1)
+
 	ticker := time.NewTicker(pingPeriod)
 
 	defer ticker.Stop()
