@@ -3,11 +3,8 @@ package main
 import (
 	"fmt"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
-
-	"termchat/shared"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -33,6 +30,10 @@ var (
 			Foreground(lipgloss.Color("250")).
 			Background(lipgloss.Color("236")).
 			Padding(0, 1)
+
+	completionSelectedStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("238")).
+				Bold(true)
 
 	usersHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -84,6 +85,9 @@ type Model struct {
 
 	// usersRequested makes the next users_list print into the chat log.
 	usersRequested bool
+
+	showCommands bool
+	selected     int
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -134,7 +138,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autoScroll = m.viewport.AtBottom()
 			return m, cmd
 
+		case "tab":
+			if m.showCommands {
+				acceptCompletion(&m)
+				return m, nil
+			}
+
+			m.showCommands = true
+			refreshCompletion(&m)
+
+			return m, nil
+
+		case "esc":
+			dismissCompletion(&m)
+
+			return m, nil
+
 		case "up":
+			if m.showCommands {
+				m.selected = max(m.selected-1, 0)
+				return m, nil
+			}
+
 			if m.input.Line() == 0 {
 				if len(m.history) > 0 && m.historyIndex > 0 {
 					m.historyIndex--
@@ -144,6 +169,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
+			if m.showCommands {
+				if n := len(completionMatches(&m)); n > 0 {
+					m.selected = min(m.selected+1, n-1)
+				}
+				return m, nil
+			}
+
 			totalLines := strings.Count(m.input.Value(), "\n") + 1
 			if m.input.Line() >= totalLines-1 {
 				if len(m.history) > 0 && m.historyIndex < len(m.history)-1 {
@@ -158,9 +190,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "alt+enter":
 			m.input.InsertRune('\n')
+			refreshCompletion(&m)
 			return m, nil
 
 		case "enter":
+			if m.showCommands {
+				acceptCompletion(&m)
+				return m, nil
+			}
+
 			text := strings.TrimSpace(m.input.Value())
 			if strings.HasPrefix(text, "/") {
 				handled, quit := handleCommand(&m, text)
@@ -176,14 +214,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.history = append(m.history, text)
 				m.historyIndex = len(m.history)
 
-				select {
-				case m.conn.Send <- Message{
+				trySend(&m, Message{
 					Type: "message",
 					Text: text,
-				}:
-				default:
-					// Buffer full, log but don't block TUI
-				}
+				})
 				m.input.Reset()
 			}
 			return m, nil
@@ -195,13 +229,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 
 		if m.input.Value() != previousValue {
+			refreshCompletion(&m)
+
 			if time.Since(m.lastTypingSent) > 2*time.Second {
-				select {
-				case m.conn.Send <- Message{
-					Type: "typing",
-				}:
-				default:
-				}
+				trySend(&m, Message{Type: "typing"})
 				m.lastTypingSent = time.Now()
 			}
 		}
@@ -296,16 +327,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.viewport.Width = max(msg.Width-sidebarWidth-10, 20)
 
-		m.viewport.Height = max(msg.Height-10, 5)
-
-		inputHeight := textareaHeight(m.input)
-		m.viewport.Height = max(
-			msg.Height-inputHeight-7,
-			5,
-		)
-
 		inputWidth := max(m.width-14, 20)
 		m.input.SetWidth(inputWidth)
+
+		resizeViewport(&m)
 
 		m.viewport.SetContent(strings.Join(renderedLines(&m), "\n"))
 
@@ -378,11 +403,17 @@ func (m Model) View() string {
 			),
 		)
 
+	rows := []string{content}
+
+	if m.showCommands {
+		if popup := renderCompletion(m); popup != "" {
+			rows = append(rows, popup)
+		}
+	}
+
 	ui := lipgloss.JoinVertical(
 		lipgloss.Left,
-		content,
-		input,
-		status,
+		append(rows, input, status)...,
 	)
 
 	return ui
@@ -616,191 +647,110 @@ func appendUsersList(m *Model) {
 	}
 }
 
-func handleCommand(m *Model, input string) (handled bool, quit bool) {
-	parts := strings.Split(input, " ")
-
-	cmd := parts[0]
-
-	switch cmd {
-
-	case "/clear":
-		m.messages = []chatLine{}
-		m.msgIndex = map[int64]int{}
-		m.viewport.SetContent("")
-		return true, false
-
-	case "/quit":
-		clearTerminal()
-		return true, true
-
-	case "/help":
-		m.messages = append(
-			m.messages,
-			chatLine{
-				rendered: systemStyle.Render(
-					"Commands: /help /clear /nick /color /password /users /reply /react /quit",
-				),
-			},
-		)
-
-		m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
-		m.viewport.GotoBottom()
-
-		return true, false
-
-	case "/users":
-		select {
-		case m.conn.Send <- Message{
-			Type: "users",
-		}:
-			m.usersRequested = true
-		default:
-		}
-
-		return true, false
-
-	case "/nick":
-		if len(parts) < 2 {
-			return true, false
-		}
-
-		newNick := parts[1]
-
-		select {
-		case m.conn.Send <- Message{
-			Type:    "nick",
-			NewNick: newNick,
-		}:
-		default:
-		}
-
-		m.nick = newNick
-
-		return true, false
-
-	case "/color":
-		if len(parts) < 2 {
-			return true, false
-		}
-
-		color := parts[1]
-
-		if !shared.IsValidHexColor(color) {
-			m.messages = append(
-				m.messages,
-				chatLine{
-					rendered: systemStyle.Render("Invalid hex color"),
-				},
-			)
-
-			m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
-			m.viewport.GotoBottom()
-
-			return true, false
-		}
-
-		select {
-		case m.conn.Send <- Message{
-			Type:  "color",
-			Color: color,
-		}:
-		default:
-		}
-
-		cfg := loadConfig()
-		cfg.Color = color
-		saveConfig(cfg)
-
-		return true, false
-	case "/password":
-		if len(parts) < 2 {
-			// No argument means remove the password
-			select {
-			case m.conn.Send <- Message{
-				Type:     "set_password",
-				Password: "",
-			}:
-			default:
-			}
-			return true, false
-		}
-
-		newPass := strings.Join(parts[1:], " ")
-
-		select {
-		case m.conn.Send <- Message{
-			Type:     "set_password",
-			Password: newPass,
-		}:
-		default:
-		}
-
-		return true, false
-	case "/reply":
-		if len(parts) < 3 {
-			return true, false
-		}
-
-		id, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return true, false
-		}
-
-		text := strings.TrimSpace(strings.Join(parts[2:], " "))
-		if text == "" {
-			return true, false
-		}
-
-		select {
-		case m.conn.Send <- Message{
-			Type:      "message",
-			Text:      text,
-			ReplyToID: id,
-		}:
-		default:
-		}
-
-		return true, false
-
-	case "/react":
-		if len(parts) < 3 {
-			return true, false
-		}
-
-		id, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return true, false
-		}
-
-		name := parts[2]
-
-		if !shared.IsValidReaction(name) {
-			m.messages = append(
-				m.messages,
-				chatLine{
-					rendered: systemStyle.Render("Invalid reaction: " + name),
-				},
-			)
-
-			m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
-			m.viewport.GotoBottom()
-
-			return true, false
-		}
-
-		select {
-		case m.conn.Send <- Message{
-			Type: "reaction",
-			ID:   id,
-			Text: name,
-		}:
-		default:
-		}
-
-		return true, false
+// completionMatches returns the suggestions for the current input, or nil
+// when the popup is closed or nothing matches.
+func completionMatches(m *Model) []command {
+	if !m.showCommands {
+		return nil
 	}
 
-	return false, false
+	return filterCommands(m.input.Value())
+}
+
+// refreshCompletion reopens or refilters the popup from the current input.
+func refreshCompletion(m *Model) {
+	value := m.input.Value()
+
+	matches := filterCommands(value)
+
+	open := strings.HasPrefix(value, "/") &&
+		!strings.ContainsAny(value, " \t\n") &&
+		len(matches) > 0
+
+	if open && m.selected >= len(matches) {
+		m.selected = len(matches) - 1
+	}
+
+	if !open {
+		m.selected = 0
+	}
+
+	m.showCommands = open
+
+	resizeViewport(m)
+}
+
+func dismissCompletion(m *Model) {
+	if !m.showCommands {
+		return
+	}
+
+	m.showCommands = false
+	m.selected = 0
+
+	resizeViewport(m)
+}
+
+// acceptCompletion inserts the selected command and closes the popup.
+func acceptCompletion(m *Model) {
+	matches := completionMatches(m)
+
+	m.showCommands = false
+
+	if len(matches) == 0 {
+		return
+	}
+
+	m.selected = min(m.selected, len(matches)-1)
+
+	m.input.SetValue(matches[m.selected].name + " ")
+	m.input.CursorEnd()
+
+	resizeViewport(m)
+}
+
+// resizeViewport refits the viewport height from the terminal size, the
+// input height and the popup height.
+func resizeViewport(m *Model) {
+	popupHeight := len(completionMatches(m))
+	if popupHeight > 0 {
+		popupHeight += 2 // rounded border
+	}
+
+	m.viewport.Height = max(
+		m.height-textareaHeight(m.input)-popupHeight-7,
+		5,
+	)
+}
+
+func renderCompletion(m Model) string {
+	matches := completionMatches(&m)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	sel := min(m.selected, len(matches)-1)
+
+	rows := make([]string, 0, len(matches))
+
+	for i, c := range matches {
+		row := fmt.Sprintf(
+			"%-*s  %s",
+			maxUsageLen(),
+			c.usage,
+			systemStyle.Render(c.description),
+		)
+
+		if i == sel {
+			row = completionSelectedStyle.Render(row)
+		}
+
+		rows = append(rows, row)
+	}
+
+	return panelStyle.
+		Width(m.width - 6).
+		Render(strings.Join(rows, "\n"))
 }
 
 func clearTerminal() {
