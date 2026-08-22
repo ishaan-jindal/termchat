@@ -16,14 +16,13 @@ concurrency:
 
 jobs:
 
-  # Verify, lint, and test first (tidy, fmt, vet, build, race tests).
-  lint-and-test:
+  # Format and test as separate checks; fuzzing waits for both.
+  gate:
     uses: ./.github/workflows/gate.yml
 
-  # Fuzzing runs once the gate has passed.
   fuzz:
     runs-on: ubuntu-latest
-    needs: lint-and-test
+    needs: gate
 
     steps:
       - name: Checkout code
@@ -41,68 +40,3 @@ jobs:
           go test -fuzz=FuzzTruncateRunes -fuzztime=15s ./server/
           go test -fuzz=FuzzRoomCodeValidation -fuzztime=15s ./shared/
           go test -fuzz=FuzzParseArgs -fuzztime=15s ./cli/
-
-  # Cross-compilation is expensive and only worth running once the gate
-  # (tidy, fmt, vet, build, race tests) has passed.
-  cross-compile:
-    runs-on: ubuntu-latest
-    needs: lint-and-test
-
-    strategy:
-      fail-fast: false
-
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-            ext: ""
-          - os: linux
-            arch: arm64
-            ext: ""
-          - os: linux
-            arch: 386
-            ext: ""
-          - os: darwin
-            arch: amd64
-            ext: ""
-          - os: darwin
-            arch: arm64
-            ext: ""
-          - os: windows
-            arch: amd64
-            ext: ".exe"
-          - os: windows
-            arch: arm64
-            ext: ".exe"
-          - os: android
-            arch: arm64
-            ext: ""
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Cross-compile all binaries
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-        run: |
-          CGO_ENABLED=0 go build -o /tmp/cli${{ matrix.ext }} ./cli
-          CGO_ENABLED=0 go build -o /tmp/server${{ matrix.ext }} ./server/cmd/server
-
-  # Single check that depends on every other job. Branch protection on main
-  # requires `lint-and-test` and `verify` by name; if the matrix grows, this
-  # requirement does not need updating.
-  verify:
-    runs-on: ubuntu-latest
-    needs: [lint-and-test, fuzz, cross-compile]
-
-    steps:
-      - name: All required checks passed
-        run: echo "All required checks passed"

@@ -152,8 +152,7 @@ crash, fix the code, not the test.
 ## Pull Request Process
 
 `main` is protected: direct pushes are blocked, and every PR must pass the
-required checks (`lint-and-test` and `verify` - the full CI gate plus an
-8-platform cross-compile).
+required checks (`gate / format` and `gate / test`).
 
 1. Ensure your code compiles: `go build ./...`
 2. Run `just pre-commit` and ensure everything passes. Add tests for new

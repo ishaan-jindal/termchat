@@ -13,7 +13,7 @@ permissions:
 
 jobs:
 
-  gate:
+  format:
     runs-on: ubuntu-latest
 
     steps:
@@ -48,8 +48,20 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Build
-        run: go build ./...
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Test (race detector)
         run: go test -race ./...

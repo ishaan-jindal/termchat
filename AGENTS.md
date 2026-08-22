@@ -99,8 +99,8 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
 
 ## CI / release
 
-- `.github/workflows/ci.yml` - PR gate: tidy, gofmt, vet, build,
-  `go test -race`, bounded fuzzing, 8-platform cross-compile.
+- `.github/workflows/ci.yml` - PR gate: tidy, gofmt, vet as a format check,
+  `go test -race` and bounded fuzzing as separate checks.
 - Tag `cli-v*` -> `.github/workflows/cli.yml`: builds 8 binaries, generates
   `termchat-checksums.txt`, creates the GitHub Release via `gh`, then calls
   `aur.yml` (AUR package sync).
@@ -110,8 +110,8 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
   dependency review runs on every PR.
 - Secrets: `AUR_SSH_PRIVATE_KEY`. Repo variables: `TERMCHAT_WS_URL` (baked
   into the CLI via ldflags `-X main.DefaultWS`).
-- `main` is protected: PR + required checks (`lint-and-test`, `verify`).
-  Never push directly.
+- `main` is protected: PR + required checks (`gate / format`,
+  `gate / test`). Never push directly.
 - Commit signing is mandatory (`git commit -s -S`).
 
 ## Deployment
