@@ -44,6 +44,8 @@ type cliOptions struct {
 
 	Password string
 
+	Theme string
+
 	HostMode     bool
 	DiscoverMode bool
 	OnlineOnly   bool
@@ -160,7 +162,25 @@ func main() {
 		startLANBroadcaster(room, opts.Port, nick)
 	}
 
-	model := NewModel(conn, nick, room)
+	themeName := opts.Theme
+	if themeName == "" {
+		themeName = cfg.Theme
+	}
+	if themeName == "" {
+		themeName = "system"
+	}
+
+	theme, err := resolveTheme(themeName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if opts.Theme != "" && cfg.Theme != opts.Theme {
+		cfg.Theme = opts.Theme
+		saveConfig(cfg)
+	}
+
+	model := NewModel(conn, nick, room, theme)
 	if opts.HostMode {
 		model.IsHost = true
 		model.HostIP = GetLocalIP()
@@ -169,6 +189,7 @@ func main() {
 
 	p := tea.NewProgram(
 		model,
+		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
 
@@ -282,6 +303,20 @@ func parseArgs(args []string) (cliOptions, error) {
 			}
 			opts.Password = value
 
+		case "theme":
+			if !hasValue {
+				i++
+				if i >= len(args) {
+					return opts, errors.New("--theme requires a value")
+				}
+				value = args[i]
+			}
+
+			if !isThemeName(value) {
+				return opts, fmt.Errorf("unknown theme %q (valid: %s)", value, validThemes())
+			}
+			opts.Theme = value
+
 		case "online":
 			opts.OnlineOnly = true
 
@@ -337,6 +372,8 @@ Options:
   --port PORT       LAN websocket port (default: %d)
   --password PASS   Room password (for hosting or joining)
   --server URL      WebSocket server URL (default: %s)
+  --theme NAME      Color theme: system, dark, light, dracula, nord, gruvbox
+                    (default: system, adapts to terminal background)
   --online          Discover: show only online rooms
   --local           Discover: show only LAN rooms
   --version, -v         Show version and exit

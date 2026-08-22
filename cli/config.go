@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Nick  string `json:"nick"`
 	Color string `json:"color"`
+	Theme string `json:"theme,omitempty"`
 }
 
 func configDir() string {
