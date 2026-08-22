@@ -86,8 +86,8 @@ type Model struct {
 	// usersRequested makes the next users_list print into the chat log.
 	usersRequested bool
 
-	showCommands bool
-	selected     int
+	showPopup bool
+	selected  int
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -139,12 +139,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case "tab":
-			if m.showCommands {
+			if m.showPopup {
 				acceptCompletion(&m)
 				return m, nil
 			}
 
-			m.showCommands = true
+			m.showPopup = true
 			refreshCompletion(&m)
 
 			return m, nil
@@ -155,7 +155,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "up":
-			if m.showCommands {
+			if m.showPopup {
 				m.selected = max(m.selected-1, 0)
 				return m, nil
 			}
@@ -169,7 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "down":
-			if m.showCommands {
+			if m.showPopup {
 				if n := len(completionMatches(&m)); n > 0 {
 					m.selected = min(m.selected+1, n-1)
 				}
@@ -194,7 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "enter":
-			if m.showCommands {
+			if m.showPopup {
 				acceptCompletion(&m)
 				return m, nil
 			}
@@ -405,7 +405,7 @@ func (m Model) View() string {
 
 	rows := []string{content}
 
-	if m.showCommands {
+	if m.showPopup {
 		if popup := renderCompletion(m); popup != "" {
 			rows = append(rows, popup)
 		}
@@ -649,23 +649,21 @@ func appendUsersList(m *Model) {
 
 // completionMatches returns the suggestions for the current input, or nil
 // when the popup is closed or nothing matches.
-func completionMatches(m *Model) []command {
-	if !m.showCommands {
+func completionMatches(m *Model) []suggestion {
+	if !m.showPopup {
 		return nil
 	}
 
-	return filterCommands(m.input.Value())
+	matches, _ := matchSuggestions(m.input.Value())
+
+	return matches
 }
 
 // refreshCompletion reopens or refilters the popup from the current input.
 func refreshCompletion(m *Model) {
-	value := m.input.Value()
+	matches, _ := matchSuggestions(m.input.Value())
 
-	matches := filterCommands(value)
-
-	open := strings.HasPrefix(value, "/") &&
-		!strings.ContainsAny(value, " \t\n") &&
-		len(matches) > 0
+	open := len(matches) > 0
 
 	if open && m.selected >= len(matches) {
 		m.selected = len(matches) - 1
@@ -675,27 +673,28 @@ func refreshCompletion(m *Model) {
 		m.selected = 0
 	}
 
-	m.showCommands = open
+	m.showPopup = open
 
 	resizeViewport(m)
 }
 
 func dismissCompletion(m *Model) {
-	if !m.showCommands {
+	if !m.showPopup {
 		return
 	}
 
-	m.showCommands = false
+	m.showPopup = false
 	m.selected = 0
 
 	resizeViewport(m)
 }
 
-// acceptCompletion inserts the selected command and closes the popup.
+// acceptCompletion inserts the selected suggestion in place of the current
+// token and closes the popup.
 func acceptCompletion(m *Model) {
-	matches := completionMatches(m)
+	matches, tokenLen := matchSuggestions(m.input.Value())
 
-	m.showCommands = false
+	m.showPopup = false
 
 	if len(matches) == 0 {
 		return
@@ -703,7 +702,8 @@ func acceptCompletion(m *Model) {
 
 	m.selected = min(m.selected, len(matches)-1)
 
-	m.input.SetValue(matches[m.selected].name + " ")
+	value := m.input.Value()
+	m.input.SetValue(value[:len(value)-tokenLen] + matches[m.selected].insert)
 	m.input.CursorEnd()
 
 	resizeViewport(m)
@@ -731,14 +731,20 @@ func renderCompletion(m Model) string {
 
 	sel := min(m.selected, len(matches)-1)
 
+	width := 0
+
+	for _, s := range matches {
+		width = max(width, len(s.primary))
+	}
+
 	rows := make([]string, 0, len(matches))
 
-	for i, c := range matches {
+	for i, s := range matches {
 		row := fmt.Sprintf(
 			"%-*s  %s",
-			maxUsageLen(),
-			c.usage,
-			systemStyle.Render(c.description),
+			width,
+			s.primary,
+			systemStyle.Render(s.detail),
 		)
 
 		if i == sel {

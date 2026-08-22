@@ -16,9 +16,10 @@
   new messages, plus TUI rendering for message display. (by @AaryanKumarSingh136)
 - `/users` prints the current room roster into the chat log, with the host
   marked, so the participant list is visible without the sidebar. (by @AkulRanjan)
-- Slash command autocomplete popup in the TUI: opens on `/` or Tab, filters
-  as you type, Up/Down select, Tab/Enter accept and Esc dismisses. Commands
-  now live in a registry that also drives `/help`. (by @ishaan-jindal)
+- Slash command and emoji autocomplete popup in the TUI: opens on `/`, `:`
+  or Tab, filters as you type, Up/Down select, Tab/Enter accept and Esc
+  dismisses. Commands live in a registry that also drives `/help`; shortcodes
+  double as `/react` names and complete with their glyph. (by @ishaan-jindal)
 
 ## [cli-v2.0.0] - 2026-08-18
 
