@@ -14,6 +14,8 @@
   heart, wow, eyes, fire, clap. (by @ishaan-jindal)
 - Platform-specific system notifications (Linux, macOS, Windows) shown on
   new messages, plus TUI rendering for message display. (by @AaryanKumarSingh136)
+- `/users` prints the current room roster into the chat log, with the host
+  marked, so the participant list is visible without the sidebar. (by @AkulRanjan)
 
 ## [cli-v2.0.0] - 2026-08-18
 

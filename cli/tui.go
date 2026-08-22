@@ -81,6 +81,9 @@ type Model struct {
 	historyIndex int
 
 	lastTypingSent time.Time
+
+	// usersRequested makes the next users_list print into the chat log.
+	usersRequested bool
 }
 
 func NewModel(conn *Connection, nick string, room string) Model {
@@ -252,6 +255,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "users_list":
 			m.users = msg.Users
+
+			if m.usersRequested {
+				appendUsersList(&m)
+				m.usersRequested = false
+			}
 
 		case "history":
 			for _, historyMsg := range msg.Messages {
@@ -586,6 +594,28 @@ func formatReactions(reactions []Reaction) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
+// appendUsersList writes the current room roster into the chat log as system
+// lines, marking the host.
+func appendUsersList(m *Model) {
+	appendFormattedMessage(m, Message{
+		Type: "system",
+		Text: fmt.Sprintf("Users (%d):", len(m.users)),
+	})
+
+	for _, user := range m.users {
+		line := "  " + user.Nick
+
+		if user.IsHost {
+			line += " (host)"
+		}
+
+		appendFormattedMessage(m, Message{
+			Type: "system",
+			Text: line,
+		})
+	}
+}
+
 func handleCommand(m *Model, input string) (handled bool, quit bool) {
 	parts := strings.Split(input, " ")
 
@@ -608,13 +638,24 @@ func handleCommand(m *Model, input string) (handled bool, quit bool) {
 			m.messages,
 			chatLine{
 				rendered: systemStyle.Render(
-					"Commands: /help /clear /nick /color /password /reply /react /quit",
+					"Commands: /help /clear /nick /color /password /users /reply /react /quit",
 				),
 			},
 		)
 
 		m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
 		m.viewport.GotoBottom()
+
+		return true, false
+
+	case "/users":
+		select {
+		case m.conn.Send <- Message{
+			Type: "users",
+		}:
+			m.usersRequested = true
+		default:
+		}
 
 		return true, false
 

@@ -295,6 +295,15 @@ func readPump(client *Client) {
 			continue
 		}
 
+		if msg.Type == "users" {
+			list, _, ok := usersSnapshot(client.RoomID)
+			if ok {
+				client.trySend(list)
+			}
+
+			continue
+		}
+
 		if msg.Type == "message" && msg.Text == "" {
 			continue
 		}
@@ -577,13 +586,15 @@ func cleanupClient(client *Client) {
 	logger.Printf("%s disconnected\n", client.nickname())
 }
 
-func broadcastUsersList(roomID string) {
+// usersSnapshot builds a room's users_list frame together with the clients it
+// should go to. The bool is false when the room no longer exists.
+func usersSnapshot(roomID string) (Message, []*Client, bool) {
 	roomsMutex.RLock()
 	room, exists := rooms[roomID]
 	roomsMutex.RUnlock()
 
 	if !exists {
-		return
+		return Message{}, nil, false
 	}
 
 	room.Mutex.Lock()
@@ -613,6 +624,15 @@ func broadcastUsersList(roomID string) {
 	msg := Message{
 		Type:  "users_list",
 		Users: users,
+	}
+
+	return msg, clients, true
+}
+
+func broadcastUsersList(roomID string) {
+	msg, clients, ok := usersSnapshot(roomID)
+	if !ok {
+		return
 	}
 
 	for _, client := range clients {

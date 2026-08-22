@@ -183,6 +183,59 @@ func TestJoinReceivesHistorySystemAndUsers(t *testing.T) {
 	}
 }
 
+func TestUsersRequestRepliesToRequesterOnly(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "USRS", "alice", "")
+	defer a.close()
+
+	a.nextOfType("history")
+	a.nextOfType("system")
+	a.nextOfType("users_list")
+
+	b := joinRoom(t, srv, "USRS", "bob", "")
+	defer b.close()
+
+	b.nextOfType("history")
+	b.nextOfType("system")
+	b.nextOfType("users_list")
+
+	a.nextOfType("system")
+	a.nextOfType("users_list")
+
+	b.send(shared.Message{Type: "users"})
+
+	users := b.nextOfType("users_list").Users
+
+	if len(users) != 2 {
+		t.Fatalf("users = %d, want 2", len(users))
+	}
+
+	host := ""
+
+	for _, u := range users {
+		if u.IsHost {
+			host = u.Nick
+		}
+	}
+
+	if host != "alice" {
+		t.Errorf("host = %q, want alice", host)
+	}
+
+	// The request is not a broadcast: alice's next frame is bob's message.
+	b.send(shared.Message{Type: "message", Text: "ping"})
+
+	next, ok := a.next()
+	if !ok {
+		t.Fatal("connection closed")
+	}
+
+	if next.Type != "message" {
+		t.Errorf("alice received %q, want message", next.Type)
+	}
+}
+
 func TestMessageBroadcast(t *testing.T) {
 	srv := startTestServer(t)
 

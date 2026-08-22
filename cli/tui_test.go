@@ -160,8 +160,71 @@ func TestCommandHelp(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(m.messages))
 	}
 
-	if !strings.Contains(m.messages[0].rendered, "/password") {
-		t.Errorf("help text = %q, want command list", m.messages[0].rendered)
+	for _, cmd := range []string{"/password", "/users", "/react"} {
+		if !strings.Contains(m.messages[0].rendered, cmd) {
+			t.Errorf("help text = %q, want %s listed", m.messages[0].rendered, cmd)
+		}
+	}
+}
+
+func TestCommandUsers(t *testing.T) {
+	m := testModel()
+
+	handled, _ := handleCommand(&m, "/users")
+
+	if !handled {
+		t.Fatal("expected handled")
+	}
+
+	msgs := drainSend(t, m)
+
+	if len(msgs) != 1 || msgs[0].Type != "users" {
+		t.Fatalf("sent = %+v, want a users request", msgs)
+	}
+
+	if !m.usersRequested {
+		t.Fatal("usersRequested = false, want true")
+	}
+
+	m, _ = update(t, m, IncomingMessage{
+		Type: "users_list",
+		Users: []UserInfo{
+			{Nick: "alice", IsHost: true},
+			{Nick: "bob"},
+		},
+	})
+
+	if m.usersRequested {
+		t.Error("usersRequested should be cleared once the list is shown")
+	}
+
+	if len(m.messages) != 3 {
+		t.Fatalf("messages = %d, want a header plus two users", len(m.messages))
+	}
+
+	rendered := strings.Join(renderedLines(&m), " ")
+
+	for _, want := range []string{"Users (2):", "alice (host)", "bob"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("output = %q, want %q", rendered, want)
+		}
+	}
+}
+
+func TestUsersListWithoutRequestIsSilent(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "alice", IsHost: true}},
+	})
+
+	if len(m.users) != 1 {
+		t.Fatalf("users = %d, want 1", len(m.users))
+	}
+
+	if len(m.messages) != 0 {
+		t.Errorf("messages = %+v, want empty", m.messages)
 	}
 }
 
