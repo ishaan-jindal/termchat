@@ -20,6 +20,10 @@
   or Tab, filters as you type, Up/Down select, Tab/Enter accept and Esc
   dismisses. Commands live in a registry that also drives `/help`; shortcodes
   double as `/react` names and complete with their glyph. (by @ishaan-jindal)
+- LAN discovery works on multi-homed hosts: beacons are sent on every
+  eligible interface via multicast plus a broadcast fallback, listeners join
+  the group on all interfaces, and an empty scan now explains the same-L2
+  requirement and the direct-connect alternative.
 
 ## [cli-v2.0.0] - 2026-08-18
 

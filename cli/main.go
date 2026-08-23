@@ -163,7 +163,7 @@ func main() {
 	model := NewModel(conn, nick, room)
 	if opts.HostMode {
 		model.IsHost = true
-		model.HostIP = GetLocalIP()
+		model.HostIP = primaryLANIP()
 		model.HostPort = opts.Port
 	}
 
