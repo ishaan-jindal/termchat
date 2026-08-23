@@ -25,6 +25,14 @@
   the group on all interfaces, and an empty scan now explains the same-L2
   requirement and the direct-connect alternative.
 
+### Fixed
+
+- Join times stay correct when either machine's clock is skewed: users_list
+  frames carry the server's time (`server_time`) and future timestamps
+  render as "now" instead of negative durations.
+
+### Removed
+
 ## [cli-v2.0.0] - 2026-08-18
 
 ### Removed

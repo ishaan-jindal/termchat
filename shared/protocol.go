@@ -14,8 +14,12 @@ type Message struct {
 	Color       string     `json:"color,omitempty"`
 	Password    string     `json:"password,omitempty"`
 	Timestamp   int64      `json:"timestamp,omitempty"`
-	Messages    []Message  `json:"messages,omitempty"`
-	Users       []UserInfo `json:"users,omitempty"`
+
+	// ServerTime is the server's current unix time, sent with users_list so
+	// clients can correct for clock skew between the two machines.
+	ServerTime int64      `json:"server_time,omitempty"`
+	Messages   []Message  `json:"messages,omitempty"`
+	Users      []UserInfo `json:"users,omitempty"`
 }
 
 type Reaction struct {

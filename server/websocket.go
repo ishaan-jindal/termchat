@@ -631,8 +631,9 @@ func usersSnapshot(roomID string) (Message, []*Client, bool) {
 	room.Mutex.Unlock()
 
 	msg := Message{
-		Type:  "users_list",
-		Users: users,
+		Type:       "users_list",
+		ServerTime: time.Now().Unix(),
+		Users:      users,
 	}
 
 	return msg, clients, true

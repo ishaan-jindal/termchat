@@ -179,6 +179,29 @@ func roomState(t *testing.T, roomID string) *Room {
 	return rooms[roomID]
 }
 
+func TestUsersListCarriesServerTime(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "CLKT", "alice", "")
+	defer a.close()
+
+	before := time.Now().Unix()
+	msg := a.nextOfType("users_list")
+	after := time.Now().Unix()
+
+	if msg.ServerTime < before || msg.ServerTime > after {
+		t.Errorf("server_time = %d, want within [%d, %d]", msg.ServerTime, before, after)
+	}
+
+	if len(msg.Users) != 1 {
+		t.Fatalf("users = %d, want 1", len(msg.Users))
+	}
+
+	if u := msg.Users[0]; u.JoinedAt <= 0 || u.JoinedAt > msg.ServerTime {
+		t.Errorf("joined_at = %d, want positive and <= server_time %d", u.JoinedAt, msg.ServerTime)
+	}
+}
+
 func TestJoinReceivesHistorySystemAndUsers(t *testing.T) {
 	srv := startTestServer(t)
 
