@@ -315,6 +315,12 @@ func cmdNick(m *Model, args []string) (bool, bool) {
 
 	newNick := args[0]
 
+	if !shared.IsValidNickname(newNick) {
+		appendSystem(m, systemStyle.Render("Invalid nickname: "+nicknameError(newNick)))
+
+		return true, false
+	}
+
 	trySend(m, Message{
 		Type:    "nick",
 		NewNick: newNick,

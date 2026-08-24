@@ -518,6 +518,55 @@ func TestRelativeTime(t *testing.T) {
 	}
 }
 
+func TestRelativeTimeClampsFuture(t *testing.T) {
+	now := time.Now()
+
+	for _, d := range []time.Duration{time.Second, time.Minute, 19800 * time.Second} {
+		if got := relativeTime(now.Add(d).Unix()); got != "now" {
+			t.Errorf("%s in the future = %q, want now", d, got)
+		}
+	}
+}
+
+func TestUsersListSetsClockOffset(t *testing.T) {
+	m := testModel()
+
+	serverNow := time.Now().Add(-19800 * time.Second).Unix()
+	msg := Message{
+		Type:       "users_list",
+		ServerTime: serverNow,
+		Users:      []UserInfo{{Nick: "bob", JoinedAt: serverNow - 30}},
+	}
+
+	m, _ = update(t, m, IncomingMessage(msg))
+
+	want := serverNow - time.Now().Unix()
+	if diff := m.clockOffset - want; diff < -2 || diff > 2 {
+		t.Fatalf("clockOffset = %d, want %d (+/- 2)", m.clockOffset, want)
+	}
+
+	if joined := relativeTime(m.users[0].JoinedAt - m.clockOffset); joined != "30s" {
+		t.Errorf("corrected join time = %q, want 30s", joined)
+	}
+}
+
+func TestUsersListWithoutServerTimeKeepsOffset(t *testing.T) {
+	m := testModel()
+
+	m.clockOffset = -19800
+
+	msg := Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "bob"}},
+	}
+
+	m, _ = update(t, m, IncomingMessage(msg))
+
+	if m.clockOffset != -19800 {
+		t.Errorf("clockOffset = %d, want it kept at -19800", m.clockOffset)
+	}
+}
+
 func TestQuitClearsTerminal(t *testing.T) {
 	m := testModel()
 

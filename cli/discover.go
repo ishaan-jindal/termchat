@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"termchat/shared"
+
+	"golang.org/x/net/ipv4"
 )
 
 type discoverOptions struct {
@@ -150,6 +152,10 @@ func discoverLAN() {
 
 	if len(beacons) == 0 {
 		fmt.Println("  No LAN rooms found.")
+		fmt.Println()
+		fmt.Println("  LAN discovery only sees hosts on the same network segment;")
+		fmt.Println("  routers, hotspots, and AP isolation block it.")
+		fmt.Println("  Join directly instead: termchat <ROOM> --host <ADDRESS> --port <PORT>")
 		return
 	}
 
@@ -178,17 +184,20 @@ func discoverLAN() {
 }
 
 func listenForBeacons(timeout time.Duration) []lanBeacon {
-	addr := &net.UDPAddr{
-		IP:   net.ParseIP(shared.DiscoveryMulticast),
-		Port: shared.DiscoveryPort,
-	}
-
-	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: shared.DiscoveryPort})
 	if err != nil {
 		fmt.Println("  Error listening for LAN beacons:", err)
 		return nil
 	}
 	defer conn.Close()
+
+	pc := ipv4.NewPacketConn(conn)
+
+	group := &net.UDPAddr{IP: net.ParseIP(shared.DiscoveryMulticast)}
+
+	for _, li := range lanInterfaces() {
+		pc.JoinGroup(&li.iface, group)
+	}
 
 	conn.SetReadDeadline(time.Now().Add(timeout))
 
@@ -202,23 +211,9 @@ func listenForBeacons(timeout time.Duration) []lanBeacon {
 			break
 		}
 
-		data := string(buf[:n])
-
-		// Expect: TERMCHAT_DISCOVER|<json>
-		if !strings.HasPrefix(data, shared.DiscoveryMagic+"|") {
+		beacon, ok := parseBeacon(buf[:n], src)
+		if !ok {
 			continue
-		}
-
-		jsonData := data[len(shared.DiscoveryMagic)+1:]
-
-		var beacon lanBeacon
-		if err := json.Unmarshal([]byte(jsonData), &beacon); err != nil {
-			continue
-		}
-
-		// Use the source IP if beacon doesn't have one
-		if beacon.IP == "" {
-			beacon.IP = src.IP.String()
 		}
 
 		key := fmt.Sprintf("%s:%d", beacon.IP, beacon.Port)
@@ -230,4 +225,30 @@ func listenForBeacons(timeout time.Duration) []lanBeacon {
 	}
 
 	return results
+}
+
+// parseBeacon decodes TERMCHAT_DISCOVER|<json> payloads, falling back to the
+// packet source address when the beacon carries no IP.
+func parseBeacon(data []byte, src *net.UDPAddr) (lanBeacon, bool) {
+	prefix := shared.DiscoveryMagic + "|"
+	if !strings.HasPrefix(string(data), prefix) {
+		return lanBeacon{}, false
+	}
+
+	var beacon lanBeacon
+
+	err := json.Unmarshal(data[len(prefix):], &beacon)
+	if err != nil {
+		return lanBeacon{}, false
+	}
+
+	if beacon.IP == "" && src != nil {
+		beacon.IP = src.IP.String()
+	}
+
+	if beacon.IP == "" || beacon.Port == 0 {
+		return lanBeacon{}, false
+	}
+
+	return beacon, true
 }

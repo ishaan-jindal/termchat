@@ -179,6 +179,29 @@ func roomState(t *testing.T, roomID string) *Room {
 	return rooms[roomID]
 }
 
+func TestUsersListCarriesServerTime(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "CLKT", "alice", "")
+	defer a.close()
+
+	before := time.Now().Unix()
+	msg := a.nextOfType("users_list")
+	after := time.Now().Unix()
+
+	if msg.ServerTime < before || msg.ServerTime > after {
+		t.Errorf("server_time = %d, want within [%d, %d]", msg.ServerTime, before, after)
+	}
+
+	if len(msg.Users) != 1 {
+		t.Fatalf("users = %d, want 1", len(msg.Users))
+	}
+
+	if u := msg.Users[0]; u.JoinedAt <= 0 || u.JoinedAt > msg.ServerTime {
+		t.Errorf("joined_at = %d, want positive and <= server_time %d", u.JoinedAt, msg.ServerTime)
+	}
+}
+
 func TestJoinReceivesHistorySystemAndUsers(t *testing.T) {
 	srv := startTestServer(t)
 
@@ -867,22 +890,80 @@ func TestMessageLengthTruncation(t *testing.T) {
 		t.Error("emoji-truncated message is not valid UTF-8")
 	}
 
-	// Nicknames are truncated to 32 runes.
+	// Nicknames beyond 32 runes are rejected, not truncated.
 	b.send(shared.Message{Type: "nick", NewNick: strings.Repeat("n", 40)})
 
-	if got := a.nextOfType("system").Text; !strings.Contains(got, strings.Repeat("n", 32)) {
-		t.Errorf("nick change message does not contain 32-rune nickname: %q", got)
+	if got := b.nextOfType("error").Text; got != "invalid_nick" {
+		t.Errorf("overlong nick error = %q", got)
+	}
+}
+
+func TestJoinRejectsInvalidNickname(t *testing.T) {
+	srv := startTestServer(t)
+
+	for _, nick := range []string{"bad nick", "\u00e9clair", strings.Repeat("n", 33)} {
+		c := joinRoom(t, srv, "NICK", nick, "")
+		defer c.close()
+
+		if got := c.nextOfType("error").Text; got != "invalid_nick" {
+			t.Errorf("reply for %q = %q, want invalid_nick", nick, got)
+		}
+
+		if _, ok := c.next(); ok {
+			t.Errorf("connection still open after rejecting %q", nick)
+		}
+	}
+}
+
+func TestJoinEmptyNicknameBecomesAnonymous(t *testing.T) {
+	srv := startTestServer(t)
+
+	c := joinRoom(t, srv, "ANON", "", "")
+	defer c.close()
+
+	c.nextOfType("history")
+
+	users := c.nextOfType("users_list")
+
+	if len(users.Users) != 1 || users.Users[0].Nick != "anonymous" {
+		t.Errorf("users = %+v, want single anonymous", users.Users)
+	}
+}
+
+func TestNickChangeRejectsInvalidName(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "NIKX", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "NIKX", "bob", "")
+	defer b.close()
+
+	waitUsers(t, a, "alice", "bob")
+
+	b.send(shared.Message{Type: "nick", NewNick: "still bob"})
+
+	if got := b.nextOfType("error").Text; got != "invalid_nick" {
+		t.Errorf("invalid nick error = %q", got)
 	}
 
-	users := a.nextOfType("users_list").Users
+	// The rejected change must not have been applied.
+	a.send(shared.Message{Type: "users"})
 
-	for _, u := range users {
-		if u.Nick == strings.Repeat("n", 32) {
-			return
+	users := a.nextOfType("users_list")
+
+	for _, u := range users.Users {
+		if u.Nick == "bob" {
+			continue
+		}
+
+		if u.Nick == "still bob" {
+			t.Errorf("rejected nick was applied: %+v", users.Users)
 		}
 	}
 
-	t.Errorf("users list does not contain the truncated 32-rune nickname: %+v", users)
+	b.send(shared.Message{Type: "nick", NewNick: "robert"})
+	waitUsers(t, a, "alice", "robert")
 }
 
 func TestPasswordRemoval(t *testing.T) {

@@ -86,6 +86,10 @@ type Model struct {
 	// usersRequested makes the next users_list print into the chat log.
 	usersRequested bool
 
+	// clockOffset is server_time minus local time from the latest
+	// users_list; relative times are rendered on the server's timeline.
+	clockOffset int64
+
 	showPopup bool
 	selected  int
 }
@@ -287,6 +291,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "users_list":
 			m.users = msg.Users
 
+			if msg.ServerTime != 0 {
+				m.clockOffset = msg.ServerTime - time.Now().Unix()
+			}
+
 			if m.usersRequested {
 				appendUsersList(&m)
 				m.usersRequested = false
@@ -438,7 +446,7 @@ func renderUsers(m Model) string {
 			nick = nick[:8]
 		}
 
-		joined := relativeTime(user.JoinedAt)
+		joined := relativeTime(user.JoinedAt - m.clockOffset)
 
 		status := ""
 		if user.IsHost {
@@ -782,6 +790,10 @@ func textareaHeight(input textarea.Model) int {
 
 func relativeTime(unix int64) string {
 	d := time.Since(time.Unix(unix, 0))
+
+	if d <= 0 {
+		return "now"
+	}
 
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

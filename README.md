@@ -125,8 +125,17 @@ process. Other users connect directly to your IP:
 termchat host FROG --port 9000 --password secret
 ```
 
-A UDP multicast beacon is broadcast every second, so `termchat discover
---local` finds your room. `--server` takes priority over `--host` / `--port`.
+A UDP beacon is announced on every network interface each second, over both
+multicast and broadcast, so `termchat discover --local` finds your room.
+`--server` takes priority over `--host` / `--port`.
+
+LAN discovery only crosses one link: it cannot see through routers, NAT
+hotspots (e.g. a travel router sharing a dorm wifi uplink), or AP isolation.
+Host and joiners must be on the same subnet; otherwise connect directly:
+
+```bash
+termchat FROG --host 192.168.1.42 --port 9000
+```
 
 ## Room System
 

@@ -19,10 +19,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-const (
-	maxMessageLength = 500
-	maxNickLength    = 32
-)
+const maxMessageLength = 500
 
 // The following limits are variables so tests can shrink the time scales.
 var (
@@ -72,10 +69,21 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client.mu.Lock()
-	client.Nickname = truncateRunes(sanitizeInput(joinMsg.Nick), maxNickLength)
+	client.Nickname = sanitizeInput(joinMsg.Nick)
 	if client.Nickname == "" {
 		client.Nickname = "anonymous"
 	}
+
+	if !shared.IsValidNickname(client.Nickname) {
+		client.mu.Unlock()
+		conn.WriteJSON(Message{
+			Type: "error",
+			Text: "invalid_nick",
+		})
+		conn.Close()
+		return
+	}
+
 	client.Color = defaultColorForNick(client.Nickname)
 	client.mu.Unlock()
 
@@ -200,15 +208,20 @@ func readPump(client *Client) {
 		)
 
 		msg.Text = truncateRunes(sanitizeInput(msg.Text), maxMessageLength)
-		msg.NewNick = truncateRunes(sanitizeInput(msg.NewNick), maxNickLength)
+		msg.NewNick = sanitizeInput(msg.NewNick)
 
 		if msg.Type == "nick" {
+			if !shared.IsValidNickname(msg.NewNick) {
+				client.trySend(Message{
+					Type: "error",
+					Text: "invalid_nick",
+				})
+				continue
+			}
+
 			client.mu.Lock()
 			oldNick := client.Nickname
 			client.Nickname = msg.NewNick
-			if client.Nickname == "" {
-				client.Nickname = "anonymous"
-			}
 			client.Color = defaultColorForNick(client.Nickname)
 			client.mu.Unlock()
 
@@ -631,8 +644,9 @@ func usersSnapshot(roomID string) (Message, []*Client, bool) {
 	room.Mutex.Unlock()
 
 	msg := Message{
-		Type:  "users_list",
-		Users: users,
+		Type:       "users_list",
+		ServerTime: time.Now().Unix(),
+		Users:      users,
 	}
 
 	return msg, clients, true

@@ -1,6 +1,9 @@
 package shared
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsValidHexColor(t *testing.T) {
 	valid := []string{
@@ -83,6 +86,42 @@ func TestNormalizeRoomCode(t *testing.T) {
 	for in, want := range cases {
 		if got := NormalizeRoomCode(in); got != want {
 			t.Errorf("NormalizeRoomCode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsValidNickname(t *testing.T) {
+	valid := []string{
+		"alice",
+		"anonymous",
+		"Bob_42",
+		"n!c#-name",
+		strings.Repeat("n", MaxNicknameLength),
+	}
+
+	for _, nick := range valid {
+		if !IsValidNickname(nick) {
+			t.Errorf("IsValidNickname(%q) = false, want true", nick)
+		}
+	}
+
+	invalid := []string{
+		"",
+		strings.Repeat("n", MaxNicknameLength+1),
+		"a b",
+		" lead",
+		"trail ",
+		"tab\tinside",
+		"h\u00e9llo",
+		"\u65e5\u672c\u8a9e",
+		"\U0001f600",
+		"ctrl\x01char",
+		"\u00a0nbsp",
+	}
+
+	for _, nick := range invalid {
+		if IsValidNickname(nick) {
+			t.Errorf("IsValidNickname(%q) = true, want false", nick)
 		}
 	}
 }
