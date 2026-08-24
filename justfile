@@ -23,6 +23,34 @@ cross:
         echo "built termchat-$os-$arch$ext"
     done
 
+# Build and stage npm packages locally for one-time trusted publishing setup
+npm-bootstrap version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p dist/npm
+    for target in linux/amd64 linux/arm64 linux/386 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+        os="${target%/*}"
+        arch="${target#*/}"
+        ext=""
+        [ "$os" = "windows" ] && ext=".exe"
+        CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+            -ldflags "-s -w -X main.Version=cli-v{{ version }} -X main.DefaultWS=wss://termchat.sacred99.online/ws" \
+            -o "dist/npm/termchat-$os-$arch$ext" ./cli
+    done
+    ./npm/stage.sh dist/npm "{{ version }}" dist/npm-pkgs
+    echo ""
+    echo "Staged in dist/npm-pkgs. First-time publish (claims the names):"
+    echo "  Publishing requires 2FA: enable TOTP at npmjs.com and use"
+    echo "  'npm login' sessions, or set a granular token with bypass-2fa."
+    echo "  1. npm login"
+    for dir in dist/npm-pkgs/platforms/*/; do
+        echo "  2. (cd '$dir' && npm publish --access public)"
+    done
+    echo "  3. (cd dist/npm-pkgs/root && npm publish --access public)"
+    echo "  4. On npmjs.com, give each package a Trusted Publisher:"
+    echo "     ishaan-jindal/termchat / npm.yml / allow npm publish,"
+    echo "     then set Publishing access to 'disallow tokens'"
+
 # Run the CLI in dev mode
 run *args:
     go run ./cli {{ args }}

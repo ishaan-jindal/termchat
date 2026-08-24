@@ -71,9 +71,9 @@ irm https://termchat.sacred99.online/win -OutFile termchat-bootstrap.ps1
 .\termchat-bootstrap.ps1
 ```
 
-Or install a binary directly: grab it from the
-[Releases Page](https://github.com/ishaan-jindal/termchat/releases), or on
-Arch Linux via the AUR (`ishaans-termchat-bin`).
+Or install via npm (`npm i -g @sacredcat/termchat`), grab a binary directly
+from the [Releases Page](https://github.com/ishaan-jindal/termchat/releases),
+or on Arch Linux use the AUR (`ishaans-termchat-bin`).
 
 Then:
 

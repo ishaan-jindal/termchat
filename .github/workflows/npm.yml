@@ -1,0 +1,136 @@
+name: npm Publish
+
+# Publishes the CLI to npm as @sacredcat/termchat plus one binary-only
+# package per platform (@sacredcat/termchat-linux-x64 etc).
+#
+# Runs standalone on cli-v* tags instead of being chained from cli.yml:
+# npm trusted publishing validates the OIDC workflow_ref claim against the
+# registered workflow filename, and that claim names the calling workflow
+# under workflow_call, which never matches.
+#
+# Auth is OIDC trusted publishing (no NPM_TOKEN secret). Each package must
+# have a trusted publisher configured on npmjs.com pointing at this exact
+# workflow filename; renaming this file breaks publishing until every
+# package config is updated.
+
+on:
+
+  push:
+    tags:
+      - "cli-v*"
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. cli-v0.4.3)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+
+  gate:
+    uses: ./.github/workflows/gate.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: gate
+
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          case "$TAG" in
+            cli-v*) ;;
+            *) echo "::error::Tag must start with cli-v (got $TAG)"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#cli-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # Trusted publishing requires npm CLI >= 11.5.1.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@^11
+          npm --version
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          mkdir -p dist
+          for target in \
+            linux/amd64 linux/arm64 linux/386 \
+            darwin/amd64 darwin/arm64 \
+            windows/amd64 windows/arm64
+          do
+            os="${target%/*}"
+            arch="${target#*/}"
+            ext=""
+            [ "$os" = windows ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
+              -ldflags "-s -w -X main.Version=${VERSION} -X main.DefaultWS=${{ vars.TERMCHAT_WS_URL }}" \
+              -o "dist/termchat-$os-$arch$ext" ./cli
+            echo "built termchat-$os-$arch$ext"
+          done
+
+      - name: Stage packages
+        run: ./npm/stage.sh dist "${{ steps.tag.outputs.version }}" npm-pkgs
+
+      # Platforms before root so the root version never lands without its
+      # binaries. Per-package guards make partial failures safe to re-run.
+      - name: Publish platform packages
+        run: |
+          cd npm-pkgs/platforms
+          for dir in */; do
+            dir="${dir%/}"
+            name="$(node -p "require('./$dir/package.json').name")"
+            version="$(node -p "require('./$dir/package.json').version")"
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "skip $name@$version (already published)"
+              continue
+            fi
+            npm publish --access public --provenance "./$dir"
+          done
+
+      - name: Publish root package
+        run: |
+          cd npm-pkgs/root
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@sacredcat/termchat@$version" version > /dev/null 2>&1; then
+            echo "skip @sacredcat/termchat@$version (already published)"
+            exit 0
+          fi
+          npm publish --access public --provenance .

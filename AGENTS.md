@@ -104,6 +104,12 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
 - Tag `cli-v*` -> `.github/workflows/cli.yml`: builds 8 binaries, generates
   `termchat-checksums.txt`, creates the GitHub Release via `gh`, then calls
   `aur.yml` (AUR package sync).
+- Tag `cli-v*` also triggers `.github/workflows/npm.yml`: gates, rebuilds 7
+  binaries, and publishes `@sacredcat/termchat` plus per-platform packages
+  via npm trusted publishing (OIDC; no NPM_TOKEN secret). It must stay a
+  standalone entry point - workflow_call chaining breaks OIDC trust
+  matching. First-ever publish of each package is manual (`just
+  npm-bootstrap`), after which tags publish automatically.
 - `websocket.yml` - GHCR image on `main` push, path-filtered; manually
   dispatchable.
 - Dependabot keeps `gomod` and `github-actions` dependencies updated;
@@ -131,4 +137,6 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
   overrides it with `--server` derived from `PUBLIC_BASE_URL`.
 - CHANGELOG entries for releases must be titled `## [cli-vX.Y.Z]` (the
   release workflow extracts notes by tag).
+- Renaming `.github/workflows/npm.yml` invalidates the Trusted Publisher
+  config on all 8 npm packages until each is re-registered on npmjs.com.
 - `dist/` is gitignored; never commit binaries.
