@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 // palette holds the raw color roles every theme must define. bg/fg paint the
@@ -110,15 +109,11 @@ func isThemeName(name string) bool {
 	return false
 }
 
-// resolveTheme builds the named theme; "system" detects the terminal
-// background and falls back to its dark or light variant.
+// resolveTheme builds the named theme; "system" keeps the terminal's own
+// colors and only adapts the accents to light or dark backgrounds.
 func resolveTheme(name string) (Theme, error) {
 	if name == "system" {
-		if termenv.HasDarkBackground() {
-			return buildTheme("dark"), nil
-		}
-
-		return buildTheme("light"), nil
+		return buildSystemTheme(), nil
 	}
 
 	if !isThemeName(name) {
@@ -126,6 +121,46 @@ func resolveTheme(name string) (Theme, error) {
 	}
 
 	return buildTheme(name), nil
+}
+
+// buildSystemTheme leaves every canvas role unstyled so nothing overrides
+// the terminal; accents use adaptive colors for light and dark backgrounds.
+func buildSystemTheme() Theme {
+	t := Theme{Name: "system"}
+
+	dim := lipgloss.AdaptiveColor{Light: "240", Dark: "8"}
+
+	t.base = lipgloss.NewStyle()
+	t.system = t.base.Foreground(dim)
+	t.mention = lipgloss.NewStyle().
+		Background(lipgloss.AdaptiveColor{Light: "235", Dark: "255"}).
+		Foreground(lipgloss.AdaptiveColor{Light: "15", Dark: "0"}).
+		Bold(true)
+	t.panel = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 1)
+	t.status = t.base.
+		Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "250"}).
+		Background(lipgloss.AdaptiveColor{Light: "254", Dark: "236"}).
+		Padding(0, 1)
+	t.completionSelected = lipgloss.NewStyle().
+		Background(lipgloss.AdaptiveColor{Light: "249", Dark: "238"}).
+		Bold(true)
+	t.usersHeader = t.base.
+		Bold(true).
+		Foreground(lipgloss.AdaptiveColor{Light: "0", Dark: "15"}).
+		Background(lipgloss.AdaptiveColor{Light: "250", Dark: "238"}).
+		Padding(0, 1)
+	t.input = textarea.Style{
+		Base:        t.base,
+		Text:        t.base,
+		CursorLine:  t.base,
+		EndOfBuffer: t.base,
+		Placeholder: t.system,
+		Prompt:      t.base,
+	}
+
+	return t
 }
 
 func buildTheme(name string) Theme {

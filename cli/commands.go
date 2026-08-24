@@ -354,7 +354,7 @@ func cmdColor(m *Model, args []string) (bool, bool) {
 // cmdTheme lists themes, or switches to the named one and persists it.
 func cmdTheme(m *Model, args []string) (bool, bool) {
 	if len(args) < 1 {
-		appendUI(m, themeList(m.theme.Name))
+		appendUI(m, themeList())
 		return true, false
 	}
 
@@ -365,6 +365,7 @@ func cmdTheme(m *Model, args []string) (bool, bool) {
 	}
 
 	m.theme = theme
+	m.applyInputStyles()
 	rerenderAll(m)
 
 	cfg := loadConfig()
@@ -376,20 +377,9 @@ func cmdTheme(m *Model, args []string) (bool, bool) {
 	return true, false
 }
 
-// themeList shows every theme name, marking the active one with "*".
-func themeList(active string) string {
-	parts := make([]string, 0, len(themeNames))
-
-	for _, n := range themeNames {
-		if n == active {
-			parts = append(parts, "* "+n)
-			continue
-		}
-
-		parts = append(parts, n)
-	}
-
-	return "Themes: " + strings.Join(parts, ", ")
+// themeList shows every theme name.
+func themeList() string {
+	return "Themes: " + validThemes()
 }
 
 func cmdPassword(m *Model, args []string) (bool, bool) {

@@ -121,9 +121,10 @@ per-user toggles; supported names: `+1`, `-1`, `laugh`, `heart`, `wow`,
 ## Themes
 
 The TUI ships six color themes: `system`, `dark`, `light`, `dracula`, `nord`
-and `gruvbox`. The default `system` adapts to your terminal background
-(light/dark detection); named themes force their own palette over it and
-paint the entire window, so the terminal's own colors do not show through.
+and `gruvbox`. The default `system` keeps your terminal's own colors and
+adapts only the accents to light or dark backgrounds; named themes force
+their own palette over the entire window, so the terminal's own colors do
+not show through.
 
 ```bash
 termchat --theme gruvbox   # pick a theme for this session

@@ -558,8 +558,8 @@ func TestCmdThemeNoArgLists(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(out, "* dark") {
-		t.Errorf("active theme not marked: %q", out)
+	if strings.Contains(out, "*") {
+		t.Errorf("listing contains a marker: %q", out)
 	}
 }
 

@@ -36,15 +36,46 @@ func TestResolveThemeUnknownListsValid(t *testing.T) {
 }
 
 func TestResolveThemeSystem(t *testing.T) {
-	// Without a TTY the background detection falls back to a default;
-	// either variant is a valid resolution.
+	// system keeps the terminal's own colors: the base style must not
+	// emit any SGR at all.
 	theme, err := resolveTheme("system")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if theme.Name != "dark" && theme.Name != "light" {
+	if theme.Name != "system" {
 		t.Fatalf("system resolved to %q", theme.Name)
+	}
+
+	if theme.base.Render("x") != "x" {
+		t.Errorf("system base is not transparent: %q", theme.base.Render("x"))
+	}
+}
+
+func TestSwitchToSystemDropsAllStyling(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "bob", Color: "#aa0000", Text: "hello world"}))
+
+	handled, quit := handleCommand(&m, "/theme system")
+
+	if !handled || quit {
+		t.Fatalf("handled = %v, quit = %v", handled, quit)
+	}
+
+	if m.theme.Name != "system" {
+		t.Fatalf("theme = %q, want system", m.theme.Name)
+	}
+
+	view := m.View()
+
+	// Adaptive accents keep their own backgrounds (status bar, headers);
+	// the dark canvas and input colors must be gone entirely.
+	if strings.Contains(view, ";48;5;235") || strings.Contains(view, "38;5;252;48") {
+		t.Errorf("system view still forces the dark canvas: %q", view)
 	}
 }
 

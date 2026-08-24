@@ -94,14 +94,6 @@ func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 	ti := textarea.New()
 
 	ti.Placeholder = "Type a message..."
-	ti.FocusedStyle = theme.input
-	ti.BlurredStyle = theme.input
-
-	// Both cursor phases need explicit colors: hidden renders the bare
-	// character and visible reverses, so defaults would bleed through.
-	ti.Cursor.Style = theme.base
-	ti.Cursor.TextStyle = theme.base
-
 	ti.Focus()
 
 	ti.ShowLineNumbers = false
@@ -110,7 +102,7 @@ func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 
 	vp := viewport.New(0, 0)
 
-	return Model{
+	m := Model{
 		conn:         conn,
 		theme:        theme,
 		messages:     []chatLine{},
@@ -124,6 +116,28 @@ func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 		history:      []string{},
 		historyIndex: 0,
 		autoScroll:   true,
+	}
+
+	m.applyInputStyles()
+
+	return m
+}
+
+// applyInputStyles wires the active theme into the textarea and cursor.
+// The textarea keeps an internal pointer to its focused/blurred style
+// captured by Focus/Blur, so it must be re-seated after the assignment.
+func (m *Model) applyInputStyles() {
+	m.input.FocusedStyle = m.theme.input
+	m.input.BlurredStyle = m.theme.input
+	m.input.Cursor.Style = m.theme.base
+	m.input.Cursor.TextStyle = m.theme.base
+
+	focused := m.input.Focused()
+	m.input.Blur()
+	m.input.Focus()
+
+	if !focused {
+		m.input.Blur()
 	}
 }
 
@@ -209,12 +223,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			text := strings.TrimSpace(m.input.Value())
 			if strings.HasPrefix(text, "/") {
+				before := m.theme.Name
 				handled, quit := handleCommand(&m, text)
 				if handled {
 					m.input.Reset()
 					if quit {
 						return m, tea.Quit
 					}
+
+					// A theme change must repaint the whole frame:
+					// the renderer's line diff can leave stale cells.
+					if m.theme.Name != before {
+						return m, tea.ClearScreen
+					}
+
 					return m, nil
 				}
 			}
