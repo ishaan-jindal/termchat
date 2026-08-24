@@ -23,19 +23,17 @@
 - LAN discovery works on multi-homed hosts: beacons are sent on every
   eligible interface via multicast plus a broadcast fallback, listeners join
   the group on all interfaces, and an empty scan now explains the same-L2
-  requirement and the direct-connect alternative.
+  requirement and the direct-connect alternative. (by @ishaan-jindal)
 
 ### Fixed
 
 - Join times stay correct when either machine's clock is skewed: users_list
   frames carry the server's time (`server_time`) and future timestamps
-  render as "now" instead of negative durations.
+  render as "now" instead of negative durations. (by @ishaan-jindal)
 - Nicknames are now strict: printable ASCII only, no spaces, up to 32
   characters. Invalid names are re-prompted at startup, rejected by `/nick`
   with feedback, and refused by the server (`invalid_nick`) instead of
-  being silently accepted.
-
-### Removed
+  being silently accepted. (by @ishaan-jindal)
 
 ## [cli-v2.0.0] - 2026-08-18
 
