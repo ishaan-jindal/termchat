@@ -30,6 +30,10 @@
 - Join times stay correct when either machine's clock is skewed: users_list
   frames carry the server's time (`server_time`) and future timestamps
   render as "now" instead of negative durations.
+- Nicknames are now strict: printable ASCII only, no spaces, up to 32
+  characters. Invalid names are re-prompted at startup, rejected by `/nick`
+  with feedback, and refused by the server (`invalid_nick`) instead of
+  being silently accepted.
 
 ### Removed
 

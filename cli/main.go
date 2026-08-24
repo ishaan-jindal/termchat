@@ -96,19 +96,7 @@ func main() {
 	cfg := loadConfig()
 	reader := getInputReader()
 
-	if cfg.Nick != "" {
-		fmt.Printf("Nickname [%s]: ", cfg.Nick)
-	} else {
-		fmt.Print("Nickname: ")
-	}
-	nick, _ := reader.ReadString('\n')
-	nick = strings.TrimSpace(nick)
-	if nick == "" {
-		nick = cfg.Nick
-	}
-	if nick == "" {
-		nick = "anonymous"
-	}
+	nick := promptNickname(reader, os.Stdout, cfg.Nick)
 
 	cfg.Nick = nick
 	saveConfig(cfg)
@@ -404,6 +392,12 @@ func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Re
 
 	if err := conn.conn.ReadJSON(&firstMsg); err != nil {
 		return nil, err
+	}
+
+	if firstMsg.Type == "error" && firstMsg.Text == "invalid_nick" {
+		conn.conn.Close()
+
+		return nil, errors.New("nickname rejected by server")
 	}
 
 	if firstMsg.Type != "error" || firstMsg.Text != "invalid_password" {
