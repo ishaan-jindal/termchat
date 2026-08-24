@@ -13,6 +13,7 @@ func FuzzParseArgs(f *testing.F) {
 	f.Add("--port")
 	f.Add("--server=wss://example.test/ws")
 	f.Add("--password=secret")
+	f.Add("--theme=dracula")
 	f.Add("-h")
 
 	f.Fuzz(func(t *testing.T, arg string) {

@@ -24,7 +24,7 @@ func testModel() Model {
 	return NewModel(&Connection{
 		Send: make(chan Message, 32),
 		done: make(chan struct{}),
-	}, "alice", "TEST")
+	}, "alice", "TEST", buildTheme("dark"))
 }
 
 func update(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
@@ -469,6 +469,132 @@ func TestNoMentionNoBellStyling(t *testing.T) {
 
 	if strings.Contains(m.messages[0].rendered, "48;5;255") {
 		t.Errorf("plain message has mention background: %q", m.messages[0].rendered)
+	}
+}
+
+func TestMentionStylingFollowsTheme(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "message", Nick: "bob", Text: "hey @alice!"}))
+
+	// Dark mention span: bold, black fg on white bg.
+	if !strings.Contains(m.messages[0].rendered, "1;30;48;5;255") {
+		t.Fatalf("dark mention styling missing: %q", m.messages[0].rendered)
+	}
+
+	m.theme = buildTheme("light")
+	rerenderAll(&m)
+
+	// Light mention span: bold, bright-white fg on dark slate bg.
+	if !strings.Contains(m.messages[0].rendered, "1;97;48;5;235") {
+		t.Errorf("light mention styling missing: %q", m.messages[0].rendered)
+	}
+
+	if strings.Contains(m.messages[0].rendered, "1;30;48;5;255") {
+		t.Errorf("dark mention styling survived theme switch: %q", m.messages[0].rendered)
+	}
+}
+
+func TestCmdThemeSwitchRerenders(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "bob", Text: "hey @alice!"}))
+	m, _ = update(t, m, IncomingMessage(Message{Type: "system", Text: "bob joined"}))
+
+	handled, quit := handleCommand(&m, "/theme light")
+
+	if !handled || quit {
+		t.Fatalf("handled = %v, quit = %v", handled, quit)
+	}
+
+	if m.theme.Name != "light" {
+		t.Fatalf("theme = %q, want light", m.theme.Name)
+	}
+
+	view := m.View()
+
+	// Light markers: mention span and the dim system line.
+	if !strings.Contains(view, "1;97;48;5;235") || !strings.Contains(view, "38;5;242") {
+		t.Error("view missing light styling")
+	}
+
+	// Dark-only colors: dim fg 8 and the dark mention span.
+	if strings.Contains(view, ";5;8m") || strings.Contains(view, "1;30;48;5;255") {
+		t.Error("view kept dark palette colors")
+	}
+
+	found := false
+
+	for _, line := range m.messages {
+		if strings.Contains(line.rendered, "Theme set to light") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Error("no confirmation feedback shown")
+	}
+}
+
+func TestCmdThemeNoArgLists(t *testing.T) {
+	m := testModel()
+
+	handleCommand(&m, "/theme")
+
+	out := ""
+
+	for _, line := range m.messages {
+		out += line.rendered
+	}
+
+	for _, name := range themeNames {
+		if !strings.Contains(out, name) {
+			t.Errorf("listing missing %q: %q", name, out)
+		}
+	}
+
+	if !strings.Contains(out, "* dark") {
+		t.Errorf("active theme not marked: %q", out)
+	}
+}
+
+func TestCmdThemeUnknownKeepsTheme(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "message", Nick: "bob", Text: "hey @alice!"}))
+	before := m.messages[0].rendered
+
+	handled, quit := handleCommand(&m, "/theme nope")
+
+	if !handled || quit {
+		t.Fatalf("handled = %v, quit = %v", handled, quit)
+	}
+
+	if m.theme.Name != "dark" {
+		t.Errorf("theme changed to %q on invalid input", m.theme.Name)
+	}
+
+	if m.messages[0].rendered != before {
+		t.Error("lines re-rendered despite rejected theme")
+	}
+
+	found := false
+
+	for _, line := range m.messages {
+		if strings.Contains(line.rendered, "unknown theme") && strings.Contains(line.rendered, "system") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Error("no unknown-theme feedback shown")
 	}
 }
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- TUI color themes: `--theme NAME` and `/theme NAME` switch between system,
+  dark, light, dracula, nord and gruvbox. The default `system` adapts to the
+  terminal background (light/dark detection); named themes force their own
+  palette over it, painting the entire window (the TUI now runs in alt
+  screen mode) and re-rendering the chat. The choice persists in the config
+  file. (by @ishaan-jindal)
+
 ## [cli-v2.1.0] - 2026-08-24
 
 ### Added

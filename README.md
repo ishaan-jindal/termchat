@@ -34,6 +34,8 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Modern Bubble Tea TUI with a users sidebar
 - Mention highlighting (`@nickname`), nickname colors, input history
 - Typing indicators and a status footer
+- Color themes: system light/dark detection, or force dracula, nord,
+  gruvbox, dark, light
 
 **Hosting:**
 
@@ -107,14 +109,28 @@ termchat discover --online | --local        # filter
 ```
 
 In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
-`/password [NEWPASS]` (host only), `/users` (list who is in the room),
-`/reply ID MESSAGE` (quote a message), `/react ID REACTION` (react to a
-message), `/quit`.
+`/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
+the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
+(react to a message), `/quit`.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are
 per-user toggles; supported names: `+1`, `-1`, `laugh`, `heart`, `wow`,
 `eyes`, `fire`, `clap`.
+
+## Themes
+
+The TUI ships six color themes: `system`, `dark`, `light`, `dracula`, `nord`
+and `gruvbox`. The default `system` adapts to your terminal background
+(light/dark detection); named themes force their own palette over it and
+paint the entire window, so the terminal's own colors do not show through.
+
+```bash
+termchat --theme gruvbox   # pick a theme for this session
+```
+
+Or switch mid-chat with `/theme dracula`; `/theme` alone lists the options.
+The choice is saved to `~/.termchat/config.json`.
 
 ## LAN Host Mode
 

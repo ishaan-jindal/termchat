@@ -117,6 +117,8 @@ func TestParseArgsEdges(t *testing.T) {
 		{"server flag without value", []string{"--server"}, "requires a value"},
 		{"host flag without value", []string{"--host"}, "requires a value"},
 		{"password flag without value", []string{"--password"}, "requires a value"},
+		{"theme flag without value", []string{"--theme"}, "requires a value"},
+		{"unknown theme", []string{"--theme", "bogus"}, "unknown theme"},
 		{"port out of range", []string{"--port", "99999"}, "invalid port"},
 		{"port negative", []string{"--port", "-1"}, "invalid port"},
 		{"port not a number", []string{"--port", "abc"}, "invalid port"},
@@ -144,7 +146,7 @@ func TestParseArgsEdges(t *testing.T) {
 }
 
 func TestParseInlineFlagValues(t *testing.T) {
-	opts, err := parseArgs([]string{"--room=FROG", "--port=9000", "--password=secret"})
+	opts, err := parseArgs([]string{"--room=FROG", "--port=9000", "--password=secret", "--theme=light"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +161,10 @@ func TestParseInlineFlagValues(t *testing.T) {
 
 	if opts.Password != "secret" {
 		t.Errorf("password = %q, want secret", opts.Password)
+	}
+
+	if opts.Theme != "light" {
+		t.Errorf("theme = %q, want light", opts.Theme)
 	}
 }
 
