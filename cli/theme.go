@@ -146,7 +146,11 @@ func buildTheme(name string) Theme {
 		Padding(0, 1).
 		Background(lipgloss.Color(p.bg))
 	if p.border != "" {
-		t.panel = t.panel.BorderForeground(lipgloss.Color(p.border))
+		// Border runes need their own background or the terminal's
+		// bleeds through behind them.
+		t.panel = t.panel.
+			BorderForeground(lipgloss.Color(p.border)).
+			BorderBackground(lipgloss.Color(p.bg))
 	}
 	t.status = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(p.statusFg)).

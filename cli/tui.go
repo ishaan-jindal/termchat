@@ -270,7 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.messages[idx].msg.Reactions = msg.Reactions
-				m.messages[idx].rendered = renderMessage(&m, m.messages[idx].msg)
+				m.messages[idx].rendered = paintLine(&m, renderMessage(&m, m.messages[idx].msg))
 			}
 
 		case "users_list":
@@ -325,7 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		resizeViewport(&m)
 
-		m.viewport.SetContent(strings.Join(renderedLines(&m), "\n"))
+		rerenderAll(&m)
 
 		return m, nil
 	}
@@ -391,9 +391,9 @@ func (m Model) View() string {
 	status := m.theme.panel.
 		Width(m.width - 6).
 		Render(
-			m.theme.status.Render(
-				statusText,
-			),
+			m.theme.status.
+				Width(m.width - 8).
+				Render(statusText),
 		)
 
 	rows := []string{content}
@@ -404,9 +404,17 @@ func (m Model) View() string {
 		}
 	}
 
+	rows = append(rows, input, status)
+
+	// Every row is painted to the full terminal width so JoinVertical
+	// never inserts plain unstyled padding between blocks.
+	for i := range rows {
+		rows[i] = m.theme.base.Width(m.width).Render(rows[i])
+	}
+
 	ui := lipgloss.JoinVertical(
 		lipgloss.Left,
-		append(rows, input, status)...,
+		rows...,
 	)
 
 	// The canvas paints every remaining cell (join gaps, panel margins,
@@ -448,6 +456,7 @@ func renderUsers(m Model) string {
 
 		coloredNick := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(user.Color)).
+			Background(m.theme.base.GetBackground()).
 			Bold(true).
 			Render("* " + nick)
 
@@ -495,8 +504,18 @@ func appendFormattedMessage(m *Model, msg Message) {
 
 // appendLine renders a line under the current theme and stores it.
 func appendLine(m *Model, line chatLine) {
-	line.rendered = renderChatLine(m, line)
+	line.rendered = paintLine(m, renderChatLine(m, line))
 	m.messages = append(m.messages, line)
+}
+
+// paintLine pads a rendered line to the viewport width with the theme
+// background, so the viewport's own unstyled padding never shows.
+func paintLine(m *Model, s string) string {
+	if m.viewport.Width <= 0 {
+		return s
+	}
+
+	return m.theme.base.Width(m.viewport.Width).Render(s)
 }
 
 // appendUI appends a local feedback line without the [system] prefix.
@@ -519,10 +538,11 @@ func renderChatLine(m *Model, line chatLine) string {
 	}
 }
 
-// rerenderAll rebuilds every cached line, e.g. after a theme switch.
+// rerenderAll rebuilds every cached line, e.g. after a theme switch or a
+// terminal resize.
 func rerenderAll(m *Model) {
 	for i := range m.messages {
-		m.messages[i].rendered = renderChatLine(m, m.messages[i])
+		m.messages[i].rendered = paintLine(m, renderChatLine(m, m.messages[i]))
 	}
 
 	m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
@@ -574,8 +594,11 @@ func renderMessage(m *Model, msg Message) string {
 		idPrefix = fmt.Sprintf("#%d ", msg.ID)
 	}
 
+	// The nick span follows the id prefix's reset, so it must carry the
+	// theme background itself or the terminal's bleeds through.
 	nickStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(msg.Color)).
+		Background(m.theme.base.GetBackground()).
 		Bold(true)
 
 	prefix := idPrefix + msg.Nick + ": "
