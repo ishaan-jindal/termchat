@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -12,6 +13,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 )
+
+// bareSpaceRe matches plain spaces directly after a reset sequence.
+var bareSpaceRe = regexp.MustCompile("\x1b\\[0m +")
+
+// restyleBareSpaces gives those spaces the theme background: the textarea
+// leaves some lines short of the input width and its internal viewport pads
+// the remainder unstyled.
+func restyleBareSpaces(theme Theme, s string) string {
+	return bareSpaceRe.ReplaceAllStringFunc(s, func(match string) string {
+		return "\x1b[0m" + theme.base.Render(match[4:])
+	})
+}
 
 // lineKind selects how a chatLine re-renders under a new theme.
 type lineKind int
@@ -83,6 +96,12 @@ func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 	ti.Placeholder = "Type a message..."
 	ti.FocusedStyle = theme.input
 	ti.BlurredStyle = theme.input
+
+	// Both cursor phases need explicit colors: hidden renders the bare
+	// character and visible reverses, so defaults would bleed through.
+	ti.Cursor.Style = theme.base
+	ti.Cursor.TextStyle = theme.base
+
 	ti.Focus()
 
 	ti.ShowLineNumbers = false
@@ -368,7 +387,7 @@ func (m Model) View() string {
 
 	input := m.theme.panel.
 		Width(m.width - 6).
-		Render(m.input.View())
+		Render(restyleBareSpaces(m.theme, m.input.View()))
 
 	statusText := fmt.Sprintf(
 		"Connected - Room %s - %d users%s",

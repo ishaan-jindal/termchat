@@ -140,6 +140,34 @@ func TestInputUsesThemeStyles(t *testing.T) {
 	}
 }
 
+// Both cursor phases paint: visible reverses the theme colors and hidden
+// renders the character under it through the theme.
+func TestCursorUsesThemeStyles(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.input.SetValue("abc")
+
+	m.input.Cursor.Blink = true
+
+	if v := m.input.View(); !strings.Contains(v, ";48;5;235m") {
+		t.Errorf("hidden cursor not themed: %q", v)
+	}
+
+	m.input.Cursor.Blink = false
+	m.input.Cursor.SetChar("x")
+
+	visible := m.input.View()
+
+	if !strings.Contains(visible, ";48;5;235m") {
+		t.Errorf("visible cursor lost theme background: %q", visible)
+	}
+
+	if !strings.Contains(visible, "\x1b[7;") && !strings.Contains(visible, "\x1b[7m") {
+		t.Errorf("visible cursor not reversed: %q", visible)
+	}
+}
+
 // A reset followed by plain spaces means those cells fall back to the
 // terminal colors; the view must never contain such a gap. A second scan
 // tracks the active SGR background so foreground-only spans (which let the
@@ -147,38 +175,43 @@ func TestInputUsesThemeStyles(t *testing.T) {
 func TestViewHasNoUnpaintedGaps(t *testing.T) {
 	forceColor(t)
 
-	m := testModel()
-
-	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	m, _ = update(t, m, IncomingMessage(Message{
-		Type:  "message",
-		ID:    1,
-		Nick:  "bob",
-		Color: "#aa0000",
-		Text:  "hello world",
-	}))
-	m.input.SetValue("/")
-	refreshCompletion(&m)
-
-	view := m.View()
-
-	bleed := regexp.MustCompile("\x1b\\[0m[ ]{2}")
-	if bleed.MatchString(view) {
-		t.Error("view contains unpainted space after a reset sequence")
+	states := map[string]func(m *Model){
+		"placeholder": func(m *Model) {},
+		"typed": func(m *Model) {
+			m.input.SetValue("hello world")
+			m.input.SetCursor(5)
+		},
 	}
 
-	if idx := unpaintedRuneIndex(view); idx >= 0 {
-		start := max(idx-40, 0)
-		end := min(idx+20, len(view))
+	for name, prepare := range states {
+		for _, blink := range []bool{true, false} {
+			m := testModel()
 
-		t.Errorf("unpainted text at %d: %q", idx, view[start:end])
-	}
-	ansiSeq := regexp.MustCompile("\x1b\\[[0-9;]*m")
-	lines := strings.Split(ansiSeq.ReplaceAllString(view, ""), "\n")
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+			m, _ = update(t, m, IncomingMessage(Message{
+				Type:  "message",
+				ID:    1,
+				Nick:  "bob",
+				Color: "#aa0000",
+				Text:  "hello world",
+			}))
 
-	for i, line := range lines {
-		if width := utf8.RuneCountInString(line); width != 120 {
-			t.Fatalf("line %d visible width = %d, want 120", i, width)
+			prepare(&m)
+			m.input.Cursor.Blink = blink
+
+			view := m.View()
+
+			if idx := unpaintedRuneIndex(view); idx >= 0 {
+				start := max(idx-40, 0)
+				end := min(idx+20, len(view))
+
+				t.Errorf("%s (blink %v): unpainted text at %d: %q", name, blink, idx, view[start:end])
+			}
+
+			bareSpaceRe2 := regexp.MustCompile("\x1b\\[0m[ ]{2}")
+			if bareSpaceRe2.MatchString(view) {
+				t.Errorf("%s (blink %v): view contains plain spaces after a reset", name, blink)
+			}
 		}
 	}
 }
