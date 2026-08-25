@@ -88,6 +88,16 @@ type Model struct {
 
 	showPopup bool
 	selected  int
+
+	voice *VoiceSession
+
+	// tokenPending guards against duplicate voice requests while the
+	// media_token reply or its timeout tick is still in flight.
+	tokenPending bool
+
+	// pendingCmd carries a tea.Cmd out of a slash-command handler; Update
+	// returns it alongside the handled model.
+	pendingCmd tea.Cmd
 }
 
 func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
@@ -227,6 +237,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				handled, quit := handleCommand(&m, text)
 				if handled {
 					m.input.Reset()
+
+					cmd := m.pendingCmd
+					m.pendingCmd = nil
+
 					if quit {
 						return m, tea.Quit
 					}
@@ -237,7 +251,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.ClearScreen
 					}
 
-					return m, nil
+					return m, cmd
 				}
 			}
 			if text != "" {
@@ -326,6 +340,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.usersRequested = false
 			}
 
+		case "media_token":
+			if m.voice == nil && m.tokenPending && msg.Token != "" {
+				m.tokenPending = false
+				m.pendingCmd = dialMediaCmd(m.conn.base, m.room, msg.Token)
+			}
+
 		case "history":
 			for _, historyMsg := range msg.Messages {
 				appendFormattedMessage(&m, historyMsg)
@@ -341,6 +361,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, waitForMessage(m.conn)
+
+	case voiceReadyMsg:
+		m.voice = &VoiceSession{conn: msg.conn}
+		appendUI(&m, "voice session joined")
+
+		return m, nil
+
+	case voiceErrorMsg:
+		m.tokenPending = false
+		appendUI(&m, "voice unavailable: "+msg.err.Error())
+
+		return m, nil
+
+	case voiceEndedMsg:
+		if m.voice != nil {
+			m.voice.conn.close()
+			m.voice = nil
+			appendUI(&m, "voice session ended")
+		}
+
+		return m, nil
+
+	case voiceTimeoutTickMsg:
+		if m.tokenPending {
+			m.tokenPending = false
+			appendUI(&m, "server did not answer the voice request; it may be too old for voice")
+		}
+
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -411,21 +460,29 @@ func (m Model) View() string {
 		Width(m.width - 6).
 		Render(restyleBareSpaces(m.theme, m.input.View()))
 
+	voiceInfo := ""
+
+	if m.voice != nil {
+		voiceInfo = " - VOICE"
+	}
+
 	statusText := fmt.Sprintf(
-		"Connected - Room %s - %d users%s",
+		"Connected - Room %s - %d users%s%s",
 		m.room,
 		len(m.users),
 		scrollInfo,
+		voiceInfo,
 	)
 
 	if m.IsHost {
 		statusText = fmt.Sprintf(
-			"SELF-HOSTED - Room %s - %s:%d - %d users%s",
+			"SELF-HOSTED - Room %s - %s:%d - %d users%s%s",
 			m.room,
 			m.HostIP,
 			m.HostPort,
 			len(m.users),
 			scrollInfo,
+			voiceInfo,
 		)
 	}
 
@@ -490,6 +547,9 @@ func renderUsers(m Model) string {
 		status := ""
 		if user.IsHost {
 			status += "[host] "
+		}
+		if user.VoiceID != 0 {
+			status += "[mic] "
 		}
 		if user.Typing {
 			status += "[...] "

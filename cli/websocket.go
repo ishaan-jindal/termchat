@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gorilla/websocket"
@@ -9,6 +10,7 @@ import (
 
 type Connection struct {
 	conn     *websocket.Conn
+	base     string        // server URL without the /ws suffix
 	Send     chan Message  // buffered channel for writes
 	firstMsg *Message      // buffered first message (used after password check)
 	done     chan struct{} // signal to stop writePump
@@ -22,6 +24,7 @@ func connectWebSocket(server string) (*Connection, error) {
 
 	return &Connection{
 		conn: conn,
+		base: strings.TrimSuffix(server, "/ws"),
 		Send: make(chan Message, 32),
 		done: make(chan struct{}),
 	}, nil
