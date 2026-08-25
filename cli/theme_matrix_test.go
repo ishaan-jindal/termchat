@@ -8,8 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// bareSpaceRun matches plain spaces directly after a reset sequence.
-var bareSpaceRun = regexp.MustCompile("\x1b\\[0m[ ]{2}")
+// bareSpaceRun matches any plain space directly after a reset sequence;
+// every visible cell, including spaces, must carry the theme background.
+var bareSpaceRun = regexp.MustCompile("\x1b\\[0m[ ]")
 
 // TestViewStatesHaveNoUnpaintedCells walks the reachable UI states and fails
 // if any visible rune renders without an active theme background.
@@ -98,6 +99,12 @@ func TestViewStatesHaveNoUnpaintedCells(t *testing.T) {
 			}
 
 			appendFormattedMessage(m, Message{Type: "message", ID: 9, Nick: "bob", Color: "#00ff00", Text: long})
+		}},
+		{"help-shown", func(m *Model) {
+			handleCommand(m, "/help")
+		}},
+		{"theme-list-shown", func(m *Model) {
+			handleCommand(m, "/theme")
 		}},
 	}
 

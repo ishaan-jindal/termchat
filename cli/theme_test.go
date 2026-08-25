@@ -301,8 +301,7 @@ func TestViewHasNoUnpaintedGaps(t *testing.T) {
 				t.Errorf("%s (blink %v): unpainted text at %d: %q", name, blink, idx, view[start:end])
 			}
 
-			bareSpaceRe2 := regexp.MustCompile("\x1b\\[0m[ ]{2}")
-			if bareSpaceRe2.MatchString(view) {
+			if bareSpaceRun.MatchString(view) {
 				t.Errorf("%s (blink %v): view contains plain spaces after a reset", name, blink)
 			}
 		}

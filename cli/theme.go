@@ -155,14 +155,14 @@ func registeredTheme(name string) Theme {
 	return buildTheme(name, p)
 }
 
-// themeSwatch renders three chips previewing a theme's canvas, border and
-// status colors.
+// themeSwatch renders three contiguous chips previewing a theme's canvas,
+// border and status colors.
 func themeSwatch(p palette) string {
 	chip := func(c string) string {
-		return lipgloss.NewStyle().Background(lipgloss.Color(c)).Render("  ")
+		return lipgloss.NewStyle().Background(lipgloss.Color(c)).Render("   ")
 	}
 
-	return chip(p.bg) + " " + chip(p.border) + " " + chip(p.statusBg)
+	return chip(p.bg) + chip(p.border) + chip(p.statusBg)
 }
 
 // resolveTheme builds the named theme; "system" keeps the terminal's own

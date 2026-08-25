@@ -266,13 +266,11 @@ func trySend(m *Model, msg Message) {
 func cmdHelp(m *Model, _ []string) (bool, bool) {
 	var b strings.Builder
 
-	b.WriteString(m.theme.system.Render("Commands:"))
+	b.WriteString("Commands:")
 
 	for _, c := range commands {
 		b.WriteString("\n")
-		b.WriteString(m.theme.system.Render(fmt.Sprintf("%-*s", maxUsageLen(), c.usage)))
-		b.WriteString("  ")
-		b.WriteString(c.description)
+		b.WriteString(fmt.Sprintf("%-*s  %s", maxUsageLen(), c.usage, c.description))
 	}
 
 	appendUI(m, b.String())
