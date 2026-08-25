@@ -29,6 +29,7 @@ func resetState(t *testing.T) {
 	roomsMutex.Unlock()
 
 	initialPassword = ""
+	resetMediaTokens()
 }
 
 func startTestServer(t *testing.T) *httptest.Server {
@@ -1539,5 +1540,57 @@ func TestReactionReplayInHistory(t *testing.T) {
 
 	if len(ping.Reactions) != 1 || ping.Reactions[0].Name != "heart" || ping.Reactions[0].Count != 1 {
 		t.Errorf("replayed reactions = %+v, want heart x1", ping.Reactions)
+	}
+}
+
+func TestMediaTokenIssuance(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "TOKN", "alice", "")
+	defer a.close()
+
+	a.send(shared.Message{Type: "media_token"})
+	first := a.nextOfType("media_token").Token
+
+	if first == "" {
+		t.Fatal("empty media token")
+	}
+
+	a.send(shared.Message{Type: "media_token"})
+	second := a.nextOfType("media_token").Token
+
+	if second == "" || second == first {
+		t.Fatalf("tokens not unique: %q vs %q", first, second)
+	}
+
+	room := roomState(t, "TOKN")
+	room.Mutex.Lock()
+	host := room.Host
+	room.Mutex.Unlock()
+
+	if got := consumeMediaToken(first); got != host {
+		t.Fatal("token did not redeem to its client")
+	}
+
+	if consumeMediaToken(first) != nil {
+		t.Fatal("token was redeemed twice")
+	}
+}
+
+func TestMediaTokenExpiry(t *testing.T) {
+	overrideLimit(t, &mediaTokenTTL, 20*time.Millisecond)
+
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "TOKE", "alice", "")
+	defer a.close()
+
+	a.send(shared.Message{Type: "media_token"})
+	token := a.nextOfType("media_token").Token
+
+	time.Sleep(50 * time.Millisecond)
+
+	if consumeMediaToken(token) != nil {
+		t.Fatal("expired token accepted")
 	}
 }

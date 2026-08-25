@@ -100,6 +100,8 @@ func StartServer(addr string) error {
 	rooms = map[string]*Room{}
 	roomsMutex.Unlock()
 
+	resetMediaTokens()
+
 	stopMu.Lock()
 	stopCh = make(chan struct{})
 	drainCh = make(chan struct{})

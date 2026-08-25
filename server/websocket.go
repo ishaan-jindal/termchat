@@ -323,6 +323,19 @@ func readPump(client *Client) {
 			continue
 		}
 
+		if msg.Type == "media_token" {
+			token := issueMediaToken(client)
+
+			if token != "" {
+				client.trySend(Message{
+					Type:  "media_token",
+					Token: token,
+				})
+			}
+
+			continue
+		}
+
 		if msg.Type == "message" && msg.Text == "" {
 			continue
 		}
