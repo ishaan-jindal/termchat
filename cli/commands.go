@@ -491,7 +491,7 @@ func cmdVoice(m *Model, args []string) (bool, bool) {
 			return true, false
 		}
 
-		m.voice.conn.close()
+		m.voice.Shutdown()
 		m.voice = nil
 		appendUI(m, "left the voice session")
 

@@ -10,11 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// VoiceSession is the client's joined voice state; nil while not in voice.
-type VoiceSession struct {
-	conn *MediaConn
-}
-
 // MediaConn is the client side of the binary /media WebSocket.
 type MediaConn struct {
 	conn      *websocket.Conn
@@ -122,6 +117,19 @@ func (mc *MediaConn) writeLoop() {
 		case <-mc.done:
 			return
 		}
+	}
+}
+
+// trySend enqueues an outbound frame without blocking; frames are droppable
+// because the next capture chunk supersedes the lost one.
+func (mc *MediaConn) trySend(frame []byte) bool {
+	select {
+	case mc.outbox <- frame:
+		return true
+	case <-mc.done:
+		return false
+	default:
+		return false
 	}
 }
 

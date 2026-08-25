@@ -91,6 +91,9 @@ type Model struct {
 
 	voice *VoiceSession
 
+	// VoiceDevice is the configured microphone name passed to ffmpeg.
+	VoiceDevice string
+
 	// tokenPending guards against duplicate voice requests while the
 	// media_token reply or its timeout tick is still in flight.
 	tokenPending bool
@@ -163,6 +166,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+c":
 			return m, tea.Quit
+
+		case "ctrl+t":
+			cmd := toggleTalk(&m)
+
+			return m, cmd
 
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
@@ -363,8 +371,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForMessage(m.conn)
 
 	case voiceReadyMsg:
-		m.voice = &VoiceSession{conn: msg.conn}
-		appendUI(&m, "voice session joined")
+		vs := &VoiceSession{conn: msg.conn}
+
+		err := vs.startPlayout()
+		if err != nil {
+			msg.conn.close()
+			appendUI(&m, "voice unavailable: "+err.Error())
+
+			return m, nil
+		}
+
+		m.voice = vs
+		appendUI(&m, "voice session joined - ctrl+t toggles talk")
 
 		return m, nil
 
@@ -376,9 +394,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case voiceEndedMsg:
 		if m.voice != nil {
-			m.voice.conn.close()
+			m.voice.Shutdown()
 			m.voice = nil
 			appendUI(&m, "voice session ended")
+		}
+
+		return m, nil
+
+	case voiceMicStoppedMsg:
+		if m.voice != nil && m.voice.tx && m.voice.mic == msg.mic {
+			m.voice.tx = false
+			m.voice.mic = nil
+			appendUI(&m, "microphone stopped unexpectedly")
 		}
 
 		return m, nil
@@ -464,6 +491,10 @@ func (m Model) View() string {
 
 	if m.voice != nil {
 		voiceInfo = " - VOICE"
+
+		if m.voice.tx {
+			voiceInfo += " [TX]"
+		}
 	}
 
 	statusText := fmt.Sprintf(
