@@ -13,6 +13,7 @@ type Message struct {
 	NewNick     string     `json:"new_nick,omitempty"`
 	Color       string     `json:"color,omitempty"`
 	Password    string     `json:"password,omitempty"`
+	Token       string     `json:"token,omitempty"`
 	Timestamp   int64      `json:"timestamp,omitempty"`
 
 	// ServerTime is the server's current unix time, sent with users_list so
@@ -46,6 +47,7 @@ type UserInfo struct {
 	JoinedAt int64  `json:"joined_at"`
 	Typing   bool   `json:"typing"`
 	IsHost   bool   `json:"is_host"`
+	VoiceID  uint32 `json:"voice_id,omitempty"` // nonzero while the user is in voice
 }
 
 // RoomInfo is returned by the /discover HTTP endpoint.
