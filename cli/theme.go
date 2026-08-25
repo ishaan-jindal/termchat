@@ -24,8 +24,23 @@ type palette struct {
 	headerFg   string
 }
 
-var palettes = map[string]palette{
-	"dark": {
+// namedPalette pairs a display name with its color roles; the slice order is
+// what /theme and error messages show.
+//
+// Adding a theme: append an entry here with every role filled in. Values
+// accept ANSI 256 indices ("235") or hex ("#bd93f9"). Roles:
+//
+//	bg/fg - window canvas          dim - system lines, reactions, quotes
+//	mention* - @mention block      border - panel frames
+//	status* - footer bar           selectedBg - autocomplete selection
+//	header* - sidebar title
+type namedPalette struct {
+	name    string
+	palette palette
+}
+
+var builtinThemes = []namedPalette{
+	{"dark", palette{
 		bg:         "235",
 		fg:         "252",
 		dim:        "8",
@@ -37,8 +52,8 @@ var palettes = map[string]palette{
 		selectedBg: "238",
 		headerBg:   "238",
 		headerFg:   "15",
-	},
-	"light": {
+	}},
+	{"light", palette{
 		bg:         "255",
 		fg:         "234",
 		dim:        "242",
@@ -50,8 +65,8 @@ var palettes = map[string]palette{
 		selectedBg: "249",
 		headerBg:   "250",
 		headerFg:   "0",
-	},
-	"dracula": {
+	}},
+	{"dracula", palette{
 		bg:         "#282a36",
 		fg:         "#f8f8f2",
 		dim:        "#6272a4",
@@ -63,8 +78,8 @@ var palettes = map[string]palette{
 		selectedBg: "#44475a",
 		headerBg:   "#bd93f9",
 		headerFg:   "#282a36",
-	},
-	"nord": {
+	}},
+	{"nord", palette{
 		bg:         "#2e3440",
 		fg:         "#eceff4",
 		dim:        "#616e88",
@@ -76,8 +91,8 @@ var palettes = map[string]palette{
 		selectedBg: "#434c5e",
 		headerBg:   "#88c0d0",
 		headerFg:   "#2e3440",
-	},
-	"gruvbox": {
+	}},
+	{"gruvbox", palette{
 		bg:         "#282828",
 		fg:         "#ebdbb2",
 		dim:        "#928374",
@@ -89,24 +104,65 @@ var palettes = map[string]palette{
 		selectedBg: "#504945",
 		headerBg:   "#fabd2f",
 		headerFg:   "#3c3836",
-	},
+	}},
 }
 
-// themeNames is the stable ordering shown by /theme and error messages.
-var themeNames = []string{"system", "dark", "light", "dracula", "nord", "gruvbox"}
+// themeNames lists "system" followed by every registered theme.
+func themeNames() []string {
+	names := make([]string, 0, len(builtinThemes)+1)
+	names = append(names, "system")
+
+	for _, t := range builtinThemes {
+		names = append(names, t.name)
+	}
+
+	return names
+}
 
 func validThemes() string {
-	return strings.Join(themeNames, ", ")
+	return strings.Join(themeNames(), ", ")
 }
 
 func isThemeName(name string) bool {
-	for _, n := range themeNames {
+	for _, n := range themeNames() {
 		if n == name {
 			return true
 		}
 	}
 
 	return false
+}
+
+// lookupPalette finds a registered palette by name.
+func lookupPalette(name string) (palette, bool) {
+	for _, t := range builtinThemes {
+		if t.name == name {
+			return t.palette, true
+		}
+	}
+
+	return palette{}, false
+}
+
+// registeredTheme builds a theme by registry name; only known-good constant
+// names reach this.
+func registeredTheme(name string) Theme {
+	p, ok := lookupPalette(name)
+	if !ok {
+		panic("unregistered theme " + name)
+	}
+
+	return buildTheme(name, p)
+}
+
+// themeSwatch renders three chips previewing a theme's canvas, border and
+// status colors.
+func themeSwatch(p palette) string {
+	chip := func(c string) string {
+		return lipgloss.NewStyle().Background(lipgloss.Color(c)).Render("  ")
+	}
+
+	return chip(p.bg) + " " + chip(p.border) + " " + chip(p.statusBg)
 }
 
 // resolveTheme builds the named theme; "system" keeps the terminal's own
@@ -120,7 +176,7 @@ func resolveTheme(name string) (Theme, error) {
 		return Theme{}, fmt.Errorf("unknown theme %q (valid: %s)", name, validThemes())
 	}
 
-	return buildTheme(name), nil
+	return registeredTheme(name), nil
 }
 
 // buildSystemTheme leaves every canvas role unstyled so nothing overrides
@@ -163,9 +219,7 @@ func buildSystemTheme() Theme {
 	return t
 }
 
-func buildTheme(name string) Theme {
-	p := palettes[name]
-
+func buildTheme(name string, p palette) Theme {
 	t := Theme{Name: name}
 
 	t.base = lipgloss.NewStyle().

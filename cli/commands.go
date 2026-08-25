@@ -377,9 +377,18 @@ func cmdTheme(m *Model, args []string) (bool, bool) {
 	return true, false
 }
 
-// themeList shows every theme name.
+// themeList shows every theme with a swatch preview of its colors.
 func themeList() string {
-	return "Themes: " + validThemes()
+	var b strings.Builder
+
+	b.WriteString("Themes:")
+	b.WriteString("\n  system   keeps your terminal colors")
+
+	for _, t := range builtinThemes {
+		fmt.Fprintf(&b, "\n  %-8s %s", t.name, themeSwatch(t.palette))
+	}
+
+	return b.String()
 }
 
 func cmdPassword(m *Model, args []string) (bool, bool) {

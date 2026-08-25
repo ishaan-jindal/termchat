@@ -24,7 +24,7 @@ func testModel() Model {
 	return NewModel(&Connection{
 		Send: make(chan Message, 32),
 		done: make(chan struct{}),
-	}, "alice", "TEST", buildTheme("dark"))
+	}, "alice", "TEST", registeredTheme("dark"))
 }
 
 func update(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
@@ -484,7 +484,7 @@ func TestMentionStylingFollowsTheme(t *testing.T) {
 		t.Fatalf("dark mention styling missing: %q", m.messages[0].rendered)
 	}
 
-	m.theme = buildTheme("light")
+	m.theme = registeredTheme("light")
 	rerenderAll(&m)
 
 	// Light mention span: bold, bright-white fg on dark slate bg.
@@ -542,6 +542,8 @@ func TestCmdThemeSwitchRerenders(t *testing.T) {
 }
 
 func TestCmdThemeNoArgLists(t *testing.T) {
+	forceColor(t)
+
 	m := testModel()
 
 	handleCommand(&m, "/theme")
@@ -552,14 +554,15 @@ func TestCmdThemeNoArgLists(t *testing.T) {
 		out += line.rendered
 	}
 
-	for _, name := range themeNames {
+	for _, name := range themeNames() {
 		if !strings.Contains(out, name) {
 			t.Errorf("listing missing %q: %q", name, out)
 		}
 	}
 
-	if strings.Contains(out, "*") {
-		t.Errorf("listing contains a marker: %q", out)
+	// Every named theme previews three swatches; system has none.
+	if got := strings.Count(out, "\x1b[48;"); got < 3*len(builtinThemes) {
+		t.Errorf("listing shows %d swatch cells, want at least %d: %q", got, 3*len(builtinThemes), out)
 	}
 }
 

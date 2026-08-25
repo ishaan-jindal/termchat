@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -10,14 +11,75 @@ import (
 )
 
 func TestResolveThemeNamedPalettes(t *testing.T) {
-	for _, name := range []string{"dark", "light", "dracula", "nord", "gruvbox"} {
-		theme, err := resolveTheme(name)
+	for _, nt := range builtinThemes {
+		theme, err := resolveTheme(nt.name)
 		if err != nil {
-			t.Fatalf("resolveTheme(%q) = %v", name, err)
+			t.Fatalf("resolveTheme(%q) = %v", nt.name, err)
 		}
 
-		if theme.Name != name {
-			t.Errorf("theme.Name = %q, want %q", theme.Name, name)
+		if theme.Name != nt.name {
+			t.Errorf("theme.Name = %q, want %q", theme.Name, nt.name)
+		}
+	}
+}
+
+// Every registered palette must be complete: a missing role compiles fine
+// but renders as an unpainted hole in the window.
+func TestThemeRegistry(t *testing.T) {
+	seen := map[string]bool{}
+
+	for _, nt := range builtinThemes {
+		if nt.name == "" {
+			t.Fatal("registry contains an empty theme name")
+		}
+
+		if seen[nt.name] {
+			t.Errorf("duplicate theme name %q", nt.name)
+		}
+
+		seen[nt.name] = true
+
+		p := reflect.ValueOf(nt.palette)
+
+		for i := 0; i < p.NumField(); i++ {
+			if p.Field(i).String() == "" {
+				t.Errorf("%s: role %s is empty", nt.name, p.Type().Field(i).Name)
+			}
+		}
+	}
+
+	if !seen["dark"] || !seen["light"] {
+		t.Error("registry must contain dark and light")
+	}
+}
+
+// Every registered theme must paint the whole canvas: new palettes inherit
+// the bleed-proofing automatically.
+func TestEveryThemePaintsCanvas(t *testing.T) {
+	forceColor(t)
+
+	for _, nt := range builtinThemes {
+		m := NewModel(&Connection{
+			Send: make(chan Message, 32),
+			done: make(chan struct{}),
+		}, "alice", "TEST", registeredTheme(nt.name))
+
+		m, _ = update(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+		m, _ = update(t, m, IncomingMessage(Message{
+			Type:  "message",
+			ID:    1,
+			Nick:  "bob",
+			Color: "#aa0000",
+			Text:  "hello world",
+		}))
+
+		view := m.View()
+
+		if idx := unpaintedRuneIndex(view); idx >= 0 {
+			start := max(idx-40, 0)
+			end := min(idx+20, len(view))
+
+			t.Errorf("[%s] unpainted cell at %d: %q", nt.name, idx, view[start:end])
 		}
 	}
 }
@@ -28,7 +90,7 @@ func TestResolveThemeUnknownListsValid(t *testing.T) {
 		t.Fatal("expected error for unknown theme")
 	}
 
-	for _, name := range themeNames {
+	for _, name := range themeNames() {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not list %q", err.Error(), name)
 		}

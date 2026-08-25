@@ -360,13 +360,12 @@ Options:
   --port PORT       LAN websocket port (default: %d)
   --password PASS   Room password (for hosting or joining)
   --server URL      WebSocket server URL (default: %s)
-  --theme NAME      Color theme: system, dark, light, dracula, nord, gruvbox
-                    (default: system, adapts to terminal background)
+  --theme NAME      Color theme: %s (default: system)
   --online          Discover: show only online rooms
   --local           Discover: show only LAN rooms
   --version, -v         Show version and exit
   --help, -h        Show this help and exit
-`, defaultLANPort, DefaultWS)
+`, defaultLANPort, DefaultWS, validThemes())
 }
 
 func splitFlag(arg string) (name string, value string, hasValue bool) {
