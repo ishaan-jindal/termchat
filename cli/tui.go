@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -13,46 +14,41 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 )
 
-var (
-	systemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8"))
+// bareSpaceRe matches plain spaces directly after a reset sequence.
+var bareSpaceRe = regexp.MustCompile("\x1b\\[0m +")
 
-	mentionStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("255")).
-			Foreground(lipgloss.Color("0")).
-			Bold(true)
+// restyleBareSpaces gives those spaces the theme background: the textarea
+// leaves some lines short of the input width and its internal viewport pads
+// the remainder unstyled.
+func restyleBareSpaces(theme Theme, s string) string {
+	return bareSpaceRe.ReplaceAllStringFunc(s, func(match string) string {
+		return "\x1b[0m" + theme.base.Render(match[4:])
+	})
+}
 
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			Padding(0, 1)
+// lineKind selects how a chatLine re-renders under a new theme.
+type lineKind int
 
-	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250")).
-			Background(lipgloss.Color("236")).
-			Padding(0, 1)
-
-	completionSelectedStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("238")).
-				Bold(true)
-
-	usersHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("15")).
-				Background(lipgloss.Color("238")).
-				Padding(0, 1)
+const (
+	lineChat   lineKind = iota // user message
+	lineSystem                 // server event, "[system]" prefix
+	lineUI                     // local feedback, no prefix
 )
 
-type IncomingMessage Message
-
 // chatLine holds one rendered chat message; the raw Message is kept so the
-// line can be re-rendered when its reactions change.
+// line can be re-rendered when its reactions or the theme change.
 type chatLine struct {
+	kind     lineKind
 	msg      Message
 	rendered string
 }
 
+type IncomingMessage Message
+
 type Model struct {
 	conn *Connection
+
+	theme Theme
 
 	messages []chatLine
 	input    textarea.Model
@@ -94,7 +90,7 @@ type Model struct {
 	selected  int
 }
 
-func NewModel(conn *Connection, nick string, room string) Model {
+func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 	ti := textarea.New()
 
 	ti.Placeholder = "Type a message..."
@@ -106,8 +102,9 @@ func NewModel(conn *Connection, nick string, room string) Model {
 
 	vp := viewport.New(0, 0)
 
-	return Model{
+	m := Model{
 		conn:         conn,
+		theme:        theme,
 		messages:     []chatLine{},
 		msgIndex:     map[int64]int{},
 		input:        ti,
@@ -119,6 +116,28 @@ func NewModel(conn *Connection, nick string, room string) Model {
 		history:      []string{},
 		historyIndex: 0,
 		autoScroll:   true,
+	}
+
+	m.applyInputStyles()
+
+	return m
+}
+
+// applyInputStyles wires the active theme into the textarea and cursor.
+// The textarea keeps an internal pointer to its focused/blurred style
+// captured by Focus/Blur, so it must be re-seated after the assignment.
+func (m *Model) applyInputStyles() {
+	m.input.FocusedStyle = m.theme.input
+	m.input.BlurredStyle = m.theme.input
+	m.input.Cursor.Style = m.theme.base
+	m.input.Cursor.TextStyle = m.theme.base
+
+	focused := m.input.Focused()
+	m.input.Blur()
+	m.input.Focus()
+
+	if !focused {
+		m.input.Blur()
 	}
 }
 
@@ -133,7 +152,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 
 		case "ctrl+c":
-			clearTerminal()
 			return m, tea.Quit
 
 		case "pgup", "pgdown":
@@ -205,12 +223,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			text := strings.TrimSpace(m.input.Value())
 			if strings.HasPrefix(text, "/") {
+				before := m.theme.Name
 				handled, quit := handleCommand(&m, text)
 				if handled {
 					m.input.Reset()
 					if quit {
 						return m, tea.Quit
 					}
+
+					// A theme change must repaint the whole frame:
+					// the renderer's line diff can leave stale cells.
+					if m.theme.Name != before {
+						return m, tea.ClearScreen
+					}
+
 					return m, nil
 				}
 			}
@@ -285,7 +311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.messages[idx].msg.Reactions = msg.Reactions
-				m.messages[idx].rendered = renderMessage(&m, m.messages[idx].msg)
+				m.messages[idx].rendered = paintLine(&m, renderMessage(&m, m.messages[idx].msg))
 			}
 
 		case "users_list":
@@ -340,7 +366,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		resizeViewport(&m)
 
-		m.viewport.SetContent(strings.Join(renderedLines(&m), "\n"))
+		rerenderAll(&m)
 
 		return m, nil
 	}
@@ -364,7 +390,7 @@ func (m Model) View() string {
 		scrollInfo += " v"
 	}
 
-	messagesPanel := panelStyle.
+	messagesPanel := m.theme.panel.
 		Width(m.viewport.Width + 4).
 		Height(m.viewport.Height).
 		Render(m.viewport.View())
@@ -381,9 +407,9 @@ func (m Model) View() string {
 		content = messagesPanel
 	}
 
-	input := panelStyle.
+	input := m.theme.panel.
 		Width(m.width - 6).
-		Render(m.input.View())
+		Render(restyleBareSpaces(m.theme, m.input.View()))
 
 	statusText := fmt.Sprintf(
 		"Connected - Room %s - %d users%s",
@@ -403,12 +429,12 @@ func (m Model) View() string {
 		)
 	}
 
-	status := panelStyle.
+	status := m.theme.panel.
 		Width(m.width - 6).
 		Render(
-			statusStyle.Render(
-				statusText,
-			),
+			m.theme.status.
+				Width(m.width - 8).
+				Render(statusText),
 		)
 
 	rows := []string{content}
@@ -419,12 +445,25 @@ func (m Model) View() string {
 		}
 	}
 
+	rows = append(rows, input, status)
+
+	// Every row is painted to the full terminal width so JoinVertical
+	// never inserts plain unstyled padding between blocks.
+	for i := range rows {
+		rows[i] = m.theme.base.Width(m.width).Render(rows[i])
+	}
+
 	ui := lipgloss.JoinVertical(
 		lipgloss.Left,
-		append(rows, input, status)...,
+		rows...,
 	)
 
-	return ui
+	// The canvas paints every remaining cell (join gaps, panel margins,
+	// filler lines) so a named theme fully covers the terminal colors.
+	return m.theme.base.
+		Width(m.width).
+		Height(m.height).
+		Render(ui)
 }
 
 func renderUsers(m Model) string {
@@ -435,7 +474,7 @@ func renderUsers(m Model) string {
 		width = 14
 	}
 
-	header := usersHeaderStyle.Width(width - 2).Align(lipgloss.Center).Render("USERS")
+	header := m.theme.usersHeader.Width(width - 2).Align(lipgloss.Center).Render("USERS")
 	lines = append(lines, header)
 	lines = append(lines, strings.Repeat("-", width-2))
 	lines = append(lines, "")
@@ -458,21 +497,17 @@ func renderUsers(m Model) string {
 
 		coloredNick := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(user.Color)).
+			Background(m.theme.base.GetBackground()).
 			Bold(true).
 			Render("* " + nick)
 
-		line := fmt.Sprintf(
-			"%-12s%4s %s",
-			coloredNick,
-			joined,
-			status,
-		)
+		line := coloredNick + m.theme.base.Render(fmt.Sprintf("%4s %s", joined, status))
 
 		lines = append(lines, line)
 	}
 
 	content := strings.Join(lines, "\n")
-	return panelStyle.
+	return m.theme.panel.
 		Width(width).
 		Height(m.viewport.Height).
 		Render(content)
@@ -482,16 +517,10 @@ func appendFormattedMessage(m *Model, msg Message) {
 	switch msg.Type {
 
 	case "system":
-		m.messages = append(m.messages, chatLine{
-			msg:      msg,
-			rendered: renderSystemMessage(m, msg),
-		})
+		appendLine(m, chatLine{kind: lineSystem, msg: msg})
 
 	case "message":
-		m.messages = append(m.messages, chatLine{
-			msg:      msg,
-			rendered: renderMessage(m, msg),
-		})
+		appendLine(m, chatLine{kind: lineChat, msg: msg})
 
 		title := ""
 
@@ -514,6 +543,52 @@ func appendFormattedMessage(m *Model, msg Message) {
 	}
 }
 
+// appendLine renders a line under the current theme and stores it.
+func appendLine(m *Model, line chatLine) {
+	line.rendered = paintLine(m, renderChatLine(m, line))
+	m.messages = append(m.messages, line)
+}
+
+// paintLine pads a rendered line to the viewport width with the theme
+// background, so the viewport's own unstyled padding never shows.
+func paintLine(m *Model, s string) string {
+	if m.viewport.Width <= 0 {
+		return s
+	}
+
+	return m.theme.base.Width(m.viewport.Width).Render(s)
+}
+
+// appendUI appends a local feedback line without the [system] prefix.
+func appendUI(m *Model, text string) {
+	appendLine(m, chatLine{kind: lineUI, msg: Message{Text: text}})
+
+	m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
+	m.viewport.GotoBottom()
+}
+
+// renderChatLine dispatches a line to its renderer under the active theme.
+func renderChatLine(m *Model, line chatLine) string {
+	switch line.kind {
+	case lineSystem:
+		return renderSystemMessage(m, line.msg)
+	case lineChat:
+		return renderMessage(m, line.msg)
+	default:
+		return renderUILine(m, line.msg)
+	}
+}
+
+// rerenderAll rebuilds every cached line, e.g. after a theme switch or a
+// terminal resize.
+func rerenderAll(m *Model) {
+	for i := range m.messages {
+		m.messages[i].rendered = paintLine(m, renderChatLine(m, m.messages[i]))
+	}
+
+	m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
+}
+
 func renderedLines(m *Model) []string {
 	lines := make([]string, 0, len(m.messages))
 
@@ -531,6 +606,17 @@ func isMention(msg Message, nick string) bool {
 	)
 }
 
+// renderUILine renders a local feedback line, dim and without a prefix.
+func renderUILine(m *Model, msg Message) string {
+	plain := msg.Text
+
+	if m.viewport.Width > 0 && runtime.GOARCH != "386" {
+		plain = wordwrap.String(plain, m.viewport.Width)
+	}
+
+	return m.theme.system.Render(plain)
+}
+
 func renderSystemMessage(m *Model, msg Message) string {
 	plain := "[system] " + msg.Text
 
@@ -538,7 +624,7 @@ func renderSystemMessage(m *Model, msg Message) string {
 		plain = wordwrap.String(plain, m.viewport.Width)
 	}
 
-	return systemStyle.Render(plain)
+	return m.theme.system.Render(plain)
 }
 
 func renderMessage(m *Model, msg Message) string {
@@ -549,8 +635,11 @@ func renderMessage(m *Model, msg Message) string {
 		idPrefix = fmt.Sprintf("#%d ", msg.ID)
 	}
 
+	// The nick span follows the id prefix's reset, so it must carry the
+	// theme background itself or the terminal's bleeds through.
 	nickStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(msg.Color)).
+		Background(m.theme.base.GetBackground()).
 		Bold(true)
 
 	prefix := idPrefix + msg.Nick + ": "
@@ -562,28 +651,31 @@ func renderMessage(m *Model, msg Message) string {
 	lines := strings.Split(wrapped, "\n")
 
 	if mentioned {
-		nickStyle = nickStyle.Background(mentionStyle.GetBackground())
+		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
 		for i := range lines {
 			if i == 0 {
-				lines[i] = systemStyle.Render(idPrefix) + nickStyle.Render(msg.Nick) + mentionStyle.Render(": "+lines[i])
+				lines[i] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + m.theme.mention.Render(": "+lines[i])
 			} else {
-				lines[i] = mentionStyle.Render(strings.Repeat(" ", len(prefix)) + lines[i])
+				lines[i] = m.theme.mention.Render(strings.Repeat(" ", len(prefix)) + lines[i])
 			}
 		}
 	} else {
 		renderedNick := nickStyle.Render(msg.Nick)
 		for i := range lines {
 			if i == 0 {
-				lines[i] = systemStyle.Render(idPrefix) + renderedNick + ": " + lines[i]
+				// Plain segments are themed explicitly: the reset at
+				// the end of a colored span would otherwise drop the
+				// background for the rest of the line.
+				lines[i] = m.theme.system.Render(idPrefix) + renderedNick + m.theme.base.Render(": "+lines[i])
 			} else {
-				lines[i] = strings.Repeat(" ", len(prefix)) + lines[i]
+				lines[i] = m.theme.base.Render(strings.Repeat(" ", len(prefix)) + lines[i])
 			}
 		}
 	}
 
 	var out []string
 
-	if quote := formatQuote(msg, availableWidth); quote != "" {
+	if quote := formatQuote(m, msg, availableWidth); quote != "" {
 		out = append(out, quote)
 	}
 
@@ -591,7 +683,7 @@ func renderMessage(m *Model, msg Message) string {
 
 	if len(msg.Reactions) > 0 {
 		last := len(out) - 1
-		out[last] += systemStyle.Render("  " + formatReactions(msg.Reactions))
+		out[last] += m.theme.system.Render("  " + formatReactions(msg.Reactions))
 	}
 
 	return strings.Join(out, "\n")
@@ -599,7 +691,7 @@ func renderMessage(m *Model, msg Message) string {
 
 // formatQuote renders the quoted message of a reply as a dim quote line, or
 // an empty string when the message is not a reply.
-func formatQuote(msg Message, width int) string {
+func formatQuote(m *Model, msg Message, width int) string {
 	if msg.ReplyToID == 0 {
 		return ""
 	}
@@ -610,7 +702,7 @@ func formatQuote(msg Message, width int) string {
 		quote = wordwrap.String(quote, width)
 	}
 
-	return systemStyle.Render(quote)
+	return m.theme.system.Render(quote)
 }
 
 // formatReactions renders reaction counts as emoji glyphs instead of raw
@@ -754,27 +846,25 @@ func renderCompletion(m Model) string {
 	rows := make([]string, 0, len(matches))
 
 	for i, s := range matches {
-		row := fmt.Sprintf(
-			"%-*s  %s",
-			width,
-			s.primary,
-			systemStyle.Render(s.detail),
-		)
+		// Each column is rendered with one style so the selected row's
+		// background is not cut short by an inner reset sequence.
+		rowStyle := m.theme.base
+		detailStyle := m.theme.system
 
 		if i == sel {
-			row = completionSelectedStyle.Render(row)
+			rowStyle = m.theme.completionSelected
+			detailStyle = m.theme.completionSelected
 		}
 
-		rows = append(rows, row)
+		rows = append(rows,
+			rowStyle.Render(fmt.Sprintf("%-*s", width, s.primary))+
+				detailStyle.Render("  "+s.detail),
+		)
 	}
 
-	return panelStyle.
+	return m.theme.panel.
 		Width(m.width - 6).
 		Render(strings.Join(rows, "\n"))
-}
-
-func clearTerminal() {
-	print("\033[H\033[2J")
 }
 
 func textareaHeight(input textarea.Model) int {

@@ -48,6 +48,13 @@ This option takes priority over \fB\-\-host\fR and \fB\-\-port\fR.
 Room password for hosting or joining. If joining a locked room without this
 flag, the CLI prompts interactively.
 .TP
+.BR \-\-theme " " \fINAME\fR
+Color theme for the TUI. The default \fBsystem\fR keeps your terminal's own
+colors and adapts only the accents to light or dark backgrounds; named
+themes force their own palette over the entire window. Run \fB/theme\fR
+inside termchat for the current list of built-ins. The choice is saved to
+the config file.
+.TP
 .BR \-\-online
 Discover filter: show online rooms only.
 .TP
@@ -88,6 +95,13 @@ Change your nickname.
 .B /color \fI#RRGGBB\fR
 Change your nickname color (hex format).
 .TP
+.B /theme \fINAME\fR
+Switch the color theme and re-render the chat. The choice is saved to the
+config file.
+.TP
+.B /theme
+List the available themes with a color swatch preview.
+.TP
 .B /password \fINEWPASS\fR
 Set or change the room password (host only).
 .TP
@@ -123,7 +137,7 @@ Quit.
 .SH FILES
 .TP
 .I ~/.termchat/config.json
-User configuration (nickname, color). Created automatically.
+User configuration (nickname, color, theme). Created automatically.
 .SH EXAMPLES
 Create a new room:
 .PP

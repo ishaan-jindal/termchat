@@ -46,6 +46,12 @@ func init() {
 			handler:     cmdColor,
 		},
 		{
+			name:        "/theme",
+			usage:       "/theme [name]",
+			description: "list or switch the color theme",
+			handler:     cmdTheme,
+		},
+		{
 			name:        "/password",
 			usage:       "/password [pass]",
 			description: "set or remove room password",
@@ -257,27 +263,17 @@ func trySend(m *Model, msg Message) {
 	}
 }
 
-// appendSystem appends a rendered system line and refreshes the viewport.
-func appendSystem(m *Model, rendered string) {
-	m.messages = append(m.messages, chatLine{rendered: rendered})
-
-	m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
-	m.viewport.GotoBottom()
-}
-
 func cmdHelp(m *Model, _ []string) (bool, bool) {
 	var b strings.Builder
 
-	b.WriteString(systemStyle.Render("Commands:"))
+	b.WriteString("Commands:")
 
 	for _, c := range commands {
 		b.WriteString("\n")
-		b.WriteString(systemStyle.Render(fmt.Sprintf("%-*s", maxUsageLen(), c.usage)))
-		b.WriteString("  ")
-		b.WriteString(c.description)
+		b.WriteString(fmt.Sprintf("%-*s  %s", maxUsageLen(), c.usage, c.description))
 	}
 
-	appendSystem(m, b.String())
+	appendUI(m, b.String())
 
 	return true, false
 }
@@ -291,8 +287,6 @@ func cmdClear(m *Model, _ []string) (bool, bool) {
 }
 
 func cmdQuit(_ *Model, _ []string) (bool, bool) {
-	clearTerminal()
-
 	return true, true
 }
 
@@ -316,7 +310,7 @@ func cmdNick(m *Model, args []string) (bool, bool) {
 	newNick := args[0]
 
 	if !shared.IsValidNickname(newNick) {
-		appendSystem(m, systemStyle.Render("Invalid nickname: "+nicknameError(newNick)))
+		appendUI(m, "Invalid nickname: "+nicknameError(newNick))
 
 		return true, false
 	}
@@ -339,7 +333,7 @@ func cmdColor(m *Model, args []string) (bool, bool) {
 	color := args[0]
 
 	if !shared.IsValidHexColor(color) {
-		appendSystem(m, systemStyle.Render("Invalid hex color"))
+		appendUI(m, "Invalid hex color")
 		return true, false
 	}
 
@@ -353,6 +347,46 @@ func cmdColor(m *Model, args []string) (bool, bool) {
 	saveConfig(cfg)
 
 	return true, false
+}
+
+// cmdTheme lists themes, or switches to the named one and persists it.
+func cmdTheme(m *Model, args []string) (bool, bool) {
+	if len(args) < 1 {
+		appendUI(m, themeList())
+		return true, false
+	}
+
+	theme, err := resolveTheme(args[0])
+	if err != nil {
+		appendUI(m, err.Error())
+		return true, false
+	}
+
+	m.theme = theme
+	m.applyInputStyles()
+	rerenderAll(m)
+
+	cfg := loadConfig()
+	cfg.Theme = args[0]
+	saveConfig(cfg)
+
+	appendUI(m, "Theme set to "+theme.Name)
+
+	return true, false
+}
+
+// themeList shows every theme with a swatch preview of its colors.
+func themeList() string {
+	var b strings.Builder
+
+	b.WriteString("Themes:")
+	b.WriteString("\n  system   keeps your terminal colors")
+
+	for _, t := range builtinThemes {
+		fmt.Fprintf(&b, "\n  %-8s %s", t.name, themeSwatch(t.palette))
+	}
+
+	return b.String()
 }
 
 func cmdPassword(m *Model, args []string) (bool, bool) {
@@ -412,7 +446,7 @@ func cmdReact(m *Model, args []string) (bool, bool) {
 	name := args[1]
 
 	if !shared.IsValidReaction(name) {
-		appendSystem(m, systemStyle.Render("Invalid reaction: "+name))
+		appendUI(m, "Invalid reaction: "+name)
 		return true, false
 	}
 
