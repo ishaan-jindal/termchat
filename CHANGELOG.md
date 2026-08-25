@@ -4,6 +4,16 @@
 
 ### Added
 
+- Voice chat: `/voice on|off` joins a room voice session and `Ctrl+T`
+  toggles push-to-talk transmit; muting kills the capture process so the
+  OS shows the microphone released. Audio is 16 kHz mono PCM in 40 ms
+  chunks relayed over a new binary `/media` WebSocket, authenticated with
+  single-use tokens requested via `media_token`; overlapping speakers are
+  mixed locally per peer. The users sidebar marks people in voice with
+  `[mic]` (users_list entries carry `voice_id`) and the footer shows
+  `VOICE [TX]`. Requires ffmpeg for capture and ffplay for playback;
+  platforms without them keep chat-only mode. The microphone device can be
+  overridden with `voice_device` in the config file. (by @ishaan-jindal)
 - TUI color themes: `--theme NAME` and `/theme NAME` switch between system,
   dark, light, dracula, nord and gruvbox. The default `system` keeps the
   terminal's own colors and adapts only the accents to light or dark
