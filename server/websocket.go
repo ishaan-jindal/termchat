@@ -562,6 +562,8 @@ func cleanupClient(client *Client) {
 	// Signal writePump and all broadcasters to stop targeting this client.
 	client.close()
 
+	hub.remove(client)
+
 	roomsMutex.RLock()
 	room, exists := rooms[client.RoomID]
 	roomsMutex.RUnlock()
@@ -644,6 +646,7 @@ func usersSnapshot(roomID string) (Message, []*Client, bool) {
 			JoinedAt: client.JoinedAt.Unix(),
 			Typing:   client.Typing,
 			IsHost:   room.Host == client,
+			VoiceID:  client.VoiceID,
 		})
 		client.mu.Unlock()
 	}

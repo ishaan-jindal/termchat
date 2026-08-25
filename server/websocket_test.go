@@ -1543,6 +1543,329 @@ func TestReactionReplayInHistory(t *testing.T) {
 	}
 }
 
+func mediaURL(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+
+	return "ws" + strings.TrimPrefix(srv.URL, "http") + "/media"
+}
+
+func requestMediaToken(t *testing.T, c *testClient) string {
+	t.Helper()
+
+	c.send(shared.Message{Type: "media_token"})
+
+	return c.nextOfType("media_token").Token
+}
+
+// dialMedia performs the /media join handshake and fails the test unless the
+// server accepts it.
+func dialMedia(t *testing.T, srv *httptest.Server, token, room string) *websocket.Conn {
+	t.Helper()
+
+	conn, _, err := websocket.DefaultDialer.Dial(mediaURL(t, srv), nil)
+	if err != nil {
+		t.Fatalf("media dial: %v", err)
+	}
+
+	err = conn.WriteJSON(shared.Message{Type: "join", Room: room, Token: token})
+	if err != nil {
+		t.Fatalf("media join write: %v", err)
+	}
+
+	var reply shared.Message
+
+	err = conn.ReadJSON(&reply)
+	if err != nil {
+		t.Fatalf("media join reply: %v", err)
+	}
+
+	if reply.Type != "ok" {
+		t.Fatalf("media join rejected: %+v", reply)
+	}
+
+	return conn
+}
+
+// tryDialMedia attempts the handshake and reports whatever the server sent
+// back, including rejections.
+func tryDialMedia(t *testing.T, srv *httptest.Server, token, room string) shared.Message {
+	t.Helper()
+
+	conn, _, err := websocket.DefaultDialer.Dial(mediaURL(t, srv), nil)
+	if err != nil {
+		t.Fatalf("media dial: %v", err)
+	}
+
+	defer conn.Close()
+
+	if err := conn.WriteJSON(shared.Message{Type: "join", Room: room, Token: token}); err != nil {
+		t.Fatalf("media join write: %v", err)
+	}
+
+	var reply shared.Message
+
+	conn.ReadJSON(&reply)
+
+	return reply
+}
+
+// nextFrame reads one binary frame or reports !ok on close/timeout.
+func nextFrame(t *testing.T, conn *websocket.Conn, within time.Duration) ([]byte, bool) {
+	t.Helper()
+
+	conn.SetReadDeadline(time.Now().Add(within))
+
+	_, frame, err := conn.ReadMessage()
+	if err != nil {
+		return nil, false
+	}
+
+	return frame, true
+}
+
+func TestMediaJoinRejectsUnknownToken(t *testing.T) {
+	srv := startTestServer(t)
+
+	reply := tryDialMedia(t, srv, "deadbeef", "TOKN")
+
+	if reply.Type != "error" || reply.Text != "invalid_token" {
+		t.Fatalf("reply = %+v, want invalid_token error", reply)
+	}
+}
+
+func TestMediaJoinRejectsForeignRoom(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "OWNR", "alice", "")
+	defer a.close()
+
+	token := requestMediaToken(t, a)
+
+	reply := tryDialMedia(t, srv, token, "ELSE")
+
+	if reply.Type != "error" || reply.Text != "invalid_token" {
+		t.Fatalf("reply = %+v, want invalid_token error", reply)
+	}
+}
+
+func TestMediaRelayReachesPeersOnly(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "VOIC", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "VOIC", "bob", "")
+	defer b.close()
+
+	c := joinRoom(t, srv, "LONE", "carol", "")
+	defer c.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "VOIC")
+	defer ac.Close()
+
+	bc := dialMedia(t, srv, requestMediaToken(t, b), "VOIC")
+	defer bc.Close()
+
+	cc := dialMedia(t, srv, requestMediaToken(t, c), "LONE")
+	defer cc.Close()
+
+	b.send(shared.Message{Type: "users"})
+	list := b.nextOfType("users_list")
+
+	ids := map[string]uint32{}
+	for _, u := range list.Users {
+		ids[u.Nick] = u.VoiceID
+	}
+
+	if ids["alice"] == 0 || ids["bob"] == 0 || ids["alice"] == ids["bob"] {
+		t.Fatalf("voice IDs wrong: %v", ids)
+	}
+
+	payload := make([]byte, shared.AudioChunkBytes)
+	frame := shared.EncodeAudioFrame(
+		shared.MediaKindAudio,
+		shared.MediaCodecPCM16,
+		0xDEADBEEF,
+		payload,
+	)
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err := ac.WriteMessage(websocket.BinaryMessage, frame)
+	if err != nil {
+		t.Fatalf("send frame: %v", err)
+	}
+
+	got, ok := nextFrame(t, bc, 5*time.Second)
+	if !ok {
+		t.Fatal("peer did not receive the relayed frame")
+	}
+
+	kind, _, voiceID, peerPayload, ok := shared.ParseMediaFrame(got)
+	if !ok {
+		t.Fatal("relayed frame does not parse")
+	}
+
+	if kind != shared.MediaKindAudio {
+		t.Errorf("kind = %#x, want audio", kind)
+	}
+
+	if voiceID != ids["alice"] {
+		t.Errorf("voiceID = %#x, want server-stamped %#x", voiceID, ids["alice"])
+	}
+
+	if string(peerPayload) != string(payload) {
+		t.Error("payload altered in relay")
+	}
+
+	if _, ok := nextFrame(t, ac, 750*time.Millisecond); ok {
+		t.Error("sender received its own frame")
+	}
+
+	if _, ok := nextFrame(t, cc, 750*time.Millisecond); ok {
+		t.Error("outsider received a frame from another room")
+	}
+}
+
+func TestMediaDuplicateJoinRejected(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "DUPL", "alice", "")
+	defer a.close()
+
+	first := dialMedia(t, srv, requestMediaToken(t, a), "DUPL")
+	defer first.Close()
+
+	reply := tryDialMedia(t, srv, requestMediaToken(t, a), "DUPL")
+
+	if reply.Type != "error" || reply.Text != "already_in_voice" {
+		t.Fatalf("reply = %+v, want already_in_voice error", reply)
+	}
+}
+
+func TestMediaOversizeFrameClosesVoiceNotChat(t *testing.T) {
+	overrideLimit(t, &maxMediaFrameSize, int64(64))
+
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "BIGF", "alice", "")
+	defer a.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "BIGF")
+	defer ac.Close()
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err := ac.WriteMessage(websocket.BinaryMessage, make([]byte, 200))
+	if err != nil {
+		t.Fatalf("send oversize frame: %v", err)
+	}
+
+	if _, ok := nextFrame(t, ac, 5*time.Second); ok {
+		t.Fatal("oversize sender stayed connected")
+	}
+
+	a.send(shared.Message{Type: "message", Text: "still here"})
+	echo := a.nextOfType("message")
+
+	if echo.Text != "still here" {
+		t.Fatalf("echo = %+v", echo)
+	}
+}
+
+func TestMediaBandwidthCapClosesVoice(t *testing.T) {
+	overrideLimit(t, &mediaUpstreamBytesPerSec, 1000)
+
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "CAPS", "alice", "")
+	defer a.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "CAPS")
+	defer ac.Close()
+
+	frame := shared.EncodeAudioFrame(
+		shared.MediaKindAudio,
+		shared.MediaCodecPCM16,
+		1,
+		make([]byte, shared.AudioChunkBytes),
+	)
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err := ac.WriteMessage(websocket.BinaryMessage, frame)
+	if err != nil {
+		t.Fatalf("send frame over cap: %v", err)
+	}
+
+	if _, ok := nextFrame(t, ac, 5*time.Second); ok {
+		t.Fatal("bandwidth-capped sender stayed connected")
+	}
+
+	a.send(shared.Message{Type: "message", Text: "chat alive"})
+	echo := a.nextOfType("message")
+
+	if echo.Text != "chat alive" {
+		t.Fatalf("echo = %+v", echo)
+	}
+}
+
+func TestMediaEndsWithChatDisconnect(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "GONE", "alice", "")
+
+	b := joinRoom(t, srv, "GONE", "bob", "")
+	defer b.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "GONE")
+	defer ac.Close()
+
+	bc := dialMedia(t, srv, requestMediaToken(t, b), "GONE")
+	defer bc.Close()
+
+	a.close()
+
+	if _, ok := nextFrame(t, ac, 5*time.Second); ok {
+		t.Fatal("media conn outlived its chat conn")
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for {
+		b.send(shared.Message{Type: "users"})
+		list := b.nextOfType("users_list")
+
+		aliceGone := true
+		bobVoice := uint32(0)
+
+		for _, u := range list.Users {
+			switch u.Nick {
+			case "alice":
+				aliceGone = false
+			case "bob":
+				bobVoice = u.VoiceID
+			}
+		}
+
+		if !aliceGone {
+			if time.Now().After(deadline) {
+				t.Fatal("alice lingered in the roster after disconnect")
+			}
+
+			time.Sleep(50 * time.Millisecond)
+
+			continue
+		}
+
+		if bobVoice == 0 {
+			t.Error("bob lost his own voice session")
+		}
+
+		break
+	}
+}
+
 func TestMediaTokenIssuance(t *testing.T) {
 	srv := startTestServer(t)
 

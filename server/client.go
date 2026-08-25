@@ -21,6 +21,7 @@ type Client struct {
 	LastTyping   time.Time
 	LastActivity time.Time
 	JoinedAt     time.Time
+	VoiceID      uint32
 
 	// MessageTimestamps is only accessed by readPump, no lock needed.
 	MessageTimestamps []time.Time
