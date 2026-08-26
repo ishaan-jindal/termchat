@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,47 +194,48 @@ func TestResolvePlayerOverride(t *testing.T) {
 	}
 }
 
-func TestPlayerCommandHeaderDecision(t *testing.T) {
-	_, _, header, err := playerCommand(playerFfplay)
-	if err != nil {
-		t.Fatal(err)
+func TestPlayerSpecHeaderDecision(t *testing.T) {
+	bin, _, header := playerSpec(playerFfplay)
+
+	if bin != "ffplay" {
+		t.Errorf("bin = %q, want ffplay", bin)
 	}
 
 	if len(header) != 44 {
 		t.Fatalf("ffplay header = %d bytes, want 44", len(header))
 	}
 
-	if runtime.GOOS != "linux" {
-		return
+	pBin, pArgs, pHeader := playerSpec(playerPaplay)
+
+	if pBin != "paplay" {
+		t.Errorf("bin = %q, want paplay", pBin)
 	}
 
-	if _, err := exec.LookPath("paplay"); err != nil {
-		return
-	}
-
-	bin, args, header, err := playerCommand(playerPaplay)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if filepath.Base(bin) != "paplay" {
-		t.Errorf("bin = %q", bin)
-	}
-
-	if header != nil {
+	if pHeader != nil {
 		t.Error("paplay must consume raw PCM without a header")
 	}
 
 	raw := false
 
-	for _, a := range args {
+	for _, a := range pArgs {
 		if a == "--raw" {
 			raw = true
 		}
 	}
 
 	if !raw {
-		t.Errorf("paplay args missing --raw: %v", args)
+		t.Errorf("paplay args missing --raw: %v", pArgs)
+	}
+}
+
+func TestPlayerCommandMissingBinary(t *testing.T) {
+	if _, err := exec.LookPath("ffplay"); err == nil {
+		t.Skip("ffplay installed; the missing-binary path is not reachable")
+	}
+
+	_, _, _, err := playerCommand(playerFfplay)
+	if err == nil || !strings.Contains(err.Error(), "ffplay") {
+		t.Fatalf("err = %v, want an ffplay-specific message", err)
 	}
 }
 

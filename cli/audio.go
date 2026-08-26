@@ -200,16 +200,12 @@ func resolvePlayer() (playerKind, error) {
 	return playerFfplay, nil
 }
 
-// playerCommand resolves the binary, args, and optional stream header for
-// the chosen player kind. A nil header means the player consumes raw PCM.
-func playerCommand(kind playerKind) (string, []string, []byte, error) {
+// playerSpec returns the player's binary name, args, and optional stream
+// header for the chosen kind; a nil header means the player consumes raw
+// PCM. It is pure and safe to assert on in any environment.
+func playerSpec(kind playerKind) (string, []string, []byte) {
 	switch kind {
 	case playerPaplay:
-		bin, err := exec.LookPath("paplay")
-		if err != nil {
-			return "", nil, nil, errors.New("paplay not found")
-		}
-
 		args := []string{
 			"--raw",
 			"--format=s16le",
@@ -217,14 +213,9 @@ func playerCommand(kind playerKind) (string, []string, []byte, error) {
 			"--channels", fmt.Sprint(shared.AudioChannels),
 		}
 
-		return bin, args, nil, nil
+		return "paplay", args, nil
 
 	case playerFfplay:
-		bin, err := exec.LookPath("ffplay")
-		if err != nil {
-			return "", nil, nil, errors.New("ffplay is required to hear voice; install ffmpeg and retry")
-		}
-
 		args := []string{
 			"-nodisp",
 			"-autoexit",
@@ -233,10 +224,31 @@ func playerCommand(kind playerKind) (string, []string, []byte, error) {
 			"-i", "pipe:0",
 		}
 
-		return bin, args, wavHeader(), nil
+		return "ffplay", args, wavHeader()
 	}
 
-	return "", nil, nil, errors.New("unknown player kind")
+	return "", nil, nil
+}
+
+// playerCommand resolves the spec and verifies the binary exists on PATH,
+// preserving the user-facing guidance for missing players.
+func playerCommand(kind playerKind) (string, []string, []byte, error) {
+	bin, args, header := playerSpec(kind)
+
+	if bin == "" {
+		return "", nil, nil, errors.New("unknown player kind")
+	}
+
+	if _, err := exec.LookPath(bin); err != nil {
+		switch kind {
+		case playerPaplay:
+			return "", nil, nil, errors.New("paplay not found")
+		case playerFfplay:
+			return "", nil, nil, errors.New("ffplay is required to hear voice; install ffmpeg and retry")
+		}
+	}
+
+	return bin, args, header, nil
 }
 
 // startPlayProc launches the resolved player and fails fast when it dies
