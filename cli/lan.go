@@ -21,7 +21,10 @@ type lanInterface struct {
 // usableIPv4 returns the interface's first routable IPv4 address, or false
 // when the flags or addresses make it unusable for discovery.
 func usableIPv4(flags net.Flags, addrs []net.Addr) (net.IP, bool) {
-	if flags&net.FlagUp == 0 || flags&net.FlagMulticast == 0 || flags&net.FlagLoopback != 0 {
+	if flags&net.FlagUp == 0 ||
+		flags&net.FlagMulticast == 0 ||
+		flags&net.FlagRunning == 0 ||
+		flags&net.FlagLoopback != 0 {
 		return nil, false
 	}
 
@@ -68,13 +71,51 @@ func lanInterfaces() []lanInterface {
 	return out
 }
 
-// primaryLANIP is the advertised address for self-hosted status displays.
-func primaryLANIP() string {
-	if lis := lanInterfaces(); len(lis) > 0 {
-		return lis[0].ip.String()
+// preferredLAN picks the interface owning the default route, else the first.
+func preferredLAN(lis []lanInterface, routeIface string) lanInterface {
+	for _, li := range lis {
+		if li.iface.Name == routeIface {
+			return li
+		}
 	}
 
-	return "localhost"
+	return lis[0]
+}
+
+// orderedLAN moves the default-route interface to the front so its beacon is
+// the canonical advertisement; the remaining order is preserved.
+func orderedLAN(lis []lanInterface, routeIface string) []lanInterface {
+	idx := -1
+
+	for i, li := range lis {
+		if li.iface.Name == routeIface {
+			idx = i
+
+			break
+		}
+	}
+
+	if idx <= 0 {
+		return lis
+	}
+
+	out := make([]lanInterface, 0, len(lis))
+	out = append(out, lis[idx])
+	out = append(out, lis[:idx]...)
+	out = append(out, lis[idx+1:]...)
+
+	return out
+}
+
+// primaryLANIP is the advertised address for self-hosted status displays;
+// it prefers the interface that owns the IPv4 default route.
+func primaryLANIP() string {
+	lis := lanInterfaces()
+	if len(lis) == 0 {
+		return "localhost"
+	}
+
+	return preferredLAN(lis, defaultRouteIface()).ip.String()
 }
 
 // startLANBroadcaster periodically announces this host on every eligible
@@ -91,6 +132,8 @@ func startLANBroadcaster(room string, port int, hostNick string) {
 // sendBeacons sends one beacon per interface via both multicast and broadcast.
 // Failures are skipped; the next tick re-enumerates and retries.
 func sendBeacons(lis []lanInterface, room string, port int, hostNick string) {
+	lis = orderedLAN(lis, defaultRouteIface())
+
 	group := &net.UDPAddr{
 		IP:   net.ParseIP(shared.DiscoveryMulticast),
 		Port: shared.DiscoveryPort,

@@ -14,6 +14,14 @@
   entire window (the TUI runs in alt screen mode) and re-rendering the
   chat. The choice persists in the config file. (by @ishaan-jindal)
 
+### Fixed
+
+- LAN discovery no longer advertises carrier-down interfaces (e.g. Docker
+  or container bridges with no link), and prefers the interface carrying
+  the default route. `discover --local` now shows the room's real LAN
+  address instead of unreachable bridge IPs, and the self-hosted status
+  footer shows an address peers can actually reach. (by @ishaan-jindal)
+
 ## [cli-v2.1.0] - 2026-08-24
 
 ### Added
