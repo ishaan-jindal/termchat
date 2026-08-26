@@ -5,7 +5,7 @@
 ### Added
 
 - Voice chat: `/voice on` joins a room voice session and `Ctrl+T` toggles
-  push-to-talk; the sidebar marks people in voice with `[mic]`. Requires
+  push-to-talk; the sidebar marks people in voice with `[VC]`. Requires
   ffmpeg. (by @ishaan-jindal)
 - TUI color themes: `--theme NAME` and `/theme NAME` switch between system,
   dark, light, dracula, nord and gruvbox. The default `system` keeps the

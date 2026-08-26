@@ -638,7 +638,7 @@ func renderUsers(m Model) string {
 			status += "[host] "
 		}
 		if user.VoiceID != 0 {
-			status += "[mic] "
+			status += "[VC] "
 		}
 		if user.Typing {
 			status += "[...] "
