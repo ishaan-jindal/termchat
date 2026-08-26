@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -88,6 +89,19 @@ type Model struct {
 
 	showPopup bool
 	selected  int
+
+	voice *VoiceSession
+
+	// VoiceDevice is the configured microphone name passed to ffmpeg.
+	VoiceDevice string
+
+	// tokenPending guards against duplicate voice requests while the
+	// media_token reply or its timeout tick is still in flight.
+	tokenPending bool
+
+	// pendingCmd carries a tea.Cmd out of a slash-command handler; Update
+	// returns it alongside the handled model.
+	pendingCmd tea.Cmd
 }
 
 func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
@@ -153,6 +167,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+c":
 			return m, tea.Quit
+
+		case "ctrl+t":
+			cmd := toggleTalk(&m)
+
+			return m, cmd
 
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
@@ -227,6 +246,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				handled, quit := handleCommand(&m, text)
 				if handled {
 					m.input.Reset()
+
+					cmd := m.pendingCmd
+					m.pendingCmd = nil
+
 					if quit {
 						return m, tea.Quit
 					}
@@ -237,7 +260,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, tea.ClearScreen
 					}
 
-					return m, nil
+					return m, cmd
 				}
 			}
 			if text != "" {
@@ -326,6 +349,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.usersRequested = false
 			}
 
+		case "media_token":
+			if m.voice == nil && m.tokenPending && msg.Token != "" {
+				m.tokenPending = false
+				m.pendingCmd = dialMediaCmd(m.conn.base, m.room, msg.Token)
+			}
+
 		case "history":
 			for _, historyMsg := range msg.Messages {
 				appendFormattedMessage(&m, historyMsg)
@@ -340,7 +369,100 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 
-		return m, waitForMessage(m.conn)
+		cmd := m.pendingCmd
+		m.pendingCmd = nil
+
+		return m, tea.Batch(waitForMessage(m.conn), cmd)
+
+	case voiceReadyMsg:
+		vs := &VoiceSession{conn: msg.conn}
+
+		err := vs.startPlayout()
+		if err != nil {
+			msg.conn.close()
+			appendUI(&m, "voice unavailable: "+err.Error())
+
+			return m, nil
+		}
+
+		dumps, dumpErr := openVoiceDumps()
+		vs.dumps = dumps
+
+		if dumpErr != nil {
+			appendUI(&m, "voice debug dumps unavailable: "+dumpErr.Error())
+		} else if dumps != nil {
+			pid := os.Getpid()
+			dir := os.Getenv("TERMCHAT_VOICE_DEBUG")
+			appendUI(&m, fmt.Sprintf("voice debug: %s/tx-%d.wav and rx-%d.wav", dir, pid, pid))
+		}
+
+		m.voice = vs
+		appendUI(&m, "voice session joined - ctrl+t toggles talk")
+
+		return m, tea.Batch(
+			waitForVoiceEnd(msg.conn),
+			waitForPlaybackStop(vs.play),
+			voiceActivityTicker(),
+		)
+
+	case voiceErrorMsg:
+		m.tokenPending = false
+		appendUI(&m, "voice unavailable: "+msg.err.Error())
+
+		return m, nil
+
+	case voiceEndedMsg:
+		if m.voice != nil {
+			m.voice.Shutdown()
+			m.voice = nil
+			appendUI(&m, "voice session ended")
+		}
+
+		return m, nil
+
+	case voicePlaybackStoppedMsg:
+		if m.voice != nil && m.voice.play == msg.play {
+			tail := msg.tail
+			if tail == "" {
+				tail = "unknown reason"
+			}
+
+			m.voice.Shutdown()
+			m.voice = nil
+			appendUI(&m, "playback stopped: "+tail)
+		}
+
+		return m, nil
+
+	case voiceActivityTickMsg:
+		if m.voice != nil {
+			return m, voiceActivityTicker()
+		}
+
+		return m, nil
+
+	case voiceMicStoppedMsg:
+		if m.voice != nil && m.voice.tx && m.voice.mic == msg.mic {
+			m.voice.tx = false
+			m.voice.mic = nil
+
+			text := "microphone stopped unexpectedly"
+			if msg.tail != "" {
+				text += ": " + msg.tail
+			}
+
+			appendUI(&m, text)
+		}
+
+		return m, nil
+
+	case voiceTimeoutTickMsg:
+		if m.tokenPending {
+			m.tokenPending = false
+			appendUI(&m, "server did not answer the voice request; it may be too old for voice")
+		}
+
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -411,21 +533,45 @@ func (m Model) View() string {
 		Width(m.width - 6).
 		Render(restyleBareSpaces(m.theme, m.input.View()))
 
+	voiceInfo := ""
+
+	if m.voice != nil {
+		now := time.Now().UnixMilli()
+
+		sending := m.voice.tx &&
+			now-m.voice.lastSent.Load() < 600
+		hearing := now-m.voice.lastRecv.Load() < 600
+
+		voiceInfo = " - VOICE"
+
+		if sending {
+			voiceInfo += " [TX*]"
+		} else if m.voice.tx {
+			voiceInfo += " [TX]"
+		}
+
+		if hearing {
+			voiceInfo += " [RX*]"
+		}
+	}
+
 	statusText := fmt.Sprintf(
-		"Connected - Room %s - %d users%s",
+		"Connected - Room %s - %d users%s%s",
 		m.room,
 		len(m.users),
 		scrollInfo,
+		voiceInfo,
 	)
 
 	if m.IsHost {
 		statusText = fmt.Sprintf(
-			"SELF-HOSTED - Room %s - %s:%d - %d users%s",
+			"SELF-HOSTED - Room %s - %s:%d - %d users%s%s",
 			m.room,
 			m.HostIP,
 			m.HostPort,
 			len(m.users),
 			scrollInfo,
+			voiceInfo,
 		)
 	}
 
@@ -490,6 +636,9 @@ func renderUsers(m Model) string {
 		status := ""
 		if user.IsHost {
 			status += "[host] "
+		}
+		if user.VoiceID != 0 {
+			status += "[VC] "
 		}
 		if user.Typing {
 			status += "[...] "

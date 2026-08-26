@@ -116,6 +116,17 @@ message is rendered as a quote line above the reply.
 Toggle a reaction on the chat message with the given ID. Reacting again
 removes it. Supported names: +1, -1, laugh, heart, wow, eyes, fire, clap.
 .TP
+.B /voice on
+Join the room's voice session. Requires ffmpeg (microphone capture) and
+ffplay (playback) on the PATH. Other users see a [VC] marker next to your
+nickname while you are in voice.
+.TP
+.B /voice off
+Leave the voice session.
+.TP
+.B /voice
+Show whether the voice session is on or off.
+.TP
 .B /quit
 Exit the room.
 .SH KEYBINDINGS
@@ -132,12 +143,29 @@ Scroll through input history.
 .B PgUp/PgDown
 Scroll chat viewport.
 .TP
+.B Ctrl+T
+Toggle microphone transmit while in a voice session (push-to-talk).
+.TP
 .B Ctrl+C
 Quit.
+.SH VOICE CHAT
+Voice sessions ride a binary WebSocket endpoint on the same server and are
+authenticated with single-use tokens minted over the control socket. Audio
+is 16 kHz mono PCM in 40 ms chunks; overlapping speakers are mixed locally.
+Playback uses paplay when available (Linux) and falls back to ffplay; the
+TERMCHAT_VOICE_PLAYER environment variable forces either. The microphone
+only transmits while armed with Ctrl+T, and muting kills the capture
+process so the operating system shows the mic as released.
+.TP
+The default input is the platform default (PulseAudio then ALSA on Linux,
+AVFoundation default on macOS). Windows needs an explicit device name; set
+\fIvoice_device\fR in ~/.termchat/config.json to the exact DirectShow audio
+device name. Headphones are recommended to avoid echo, since terminals have
+no echo cancellation.
 .SH FILES
 .TP
 .I ~/.termchat/config.json
-User configuration (nickname, color, theme). Created automatically.
+User configuration (nickname, color, theme, voice device). Created automatically.
 .SH EXAMPLES
 Create a new room:
 .PP

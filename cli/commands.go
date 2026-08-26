@@ -76,6 +76,12 @@ func init() {
 			handler:     cmdReact,
 		},
 		{
+			name:        "/voice",
+			usage:       "/voice on|off",
+			description: "join or leave the voice session",
+			handler:     cmdVoice,
+		},
+		{
 			name:        "/quit",
 			usage:       "/quit",
 			description: "leave termchat",
@@ -455,6 +461,54 @@ func cmdReact(m *Model, args []string) (bool, bool) {
 		ID:   id,
 		Text: name,
 	})
+
+	return true, false
+}
+
+func cmdVoice(m *Model, args []string) (bool, bool) {
+	action := "status"
+
+	if len(args) > 0 {
+		action = strings.ToLower(args[0])
+	}
+
+	switch action {
+	case "on":
+		switch {
+		case m.voice != nil:
+			appendUI(m, "voice is already on")
+		case m.tokenPending:
+			appendUI(m, "voice request already in flight")
+		default:
+			appendUI(m, "requesting voice session...")
+			trySend(m, Message{Type: "media_token"})
+			m.tokenPending = true
+			m.pendingCmd = voiceTimeoutCmd()
+		}
+
+	case "off":
+		if m.voice == nil {
+			appendUI(m, "voice is not on")
+			return true, false
+		}
+
+		m.voice.Shutdown()
+		m.voice = nil
+		appendUI(m, "left the voice session")
+
+	default:
+		if m.voice != nil {
+			appendUI(m, fmt.Sprintf(
+				"voice is on - tx %v, sent %d frames, received %d frames",
+				m.voice.tx,
+				m.voice.sentFrames.Load(),
+				m.voice.recvFrames.Load(),
+			))
+			appendUI(m, m.voice.playerStatus())
+		} else {
+			appendUI(m, "voice is off; usage: /voice on|off")
+		}
+	}
 
 	return true, false
 }

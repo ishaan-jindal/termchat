@@ -4,12 +4,23 @@
 
 ### Added
 
+- Voice chat: `/voice on` joins a room voice session and `Ctrl+T` toggles
+  push-to-talk; the sidebar marks people in voice with `[VC]`. Requires
+  ffmpeg. (by @ishaan-jindal)
 - TUI color themes: `--theme NAME` and `/theme NAME` switch between system,
   dark, light, dracula, nord and gruvbox. The default `system` keeps the
   terminal's own colors and adapts only the accents to light or dark
   backgrounds; named themes force their own palette over it, painting the
   entire window (the TUI runs in alt screen mode) and re-rendering the
   chat. The choice persists in the config file. (by @ishaan-jindal)
+
+### Fixed
+
+- LAN discovery no longer advertises carrier-down interfaces (e.g. Docker
+  or container bridges with no link), and prefers the interface carrying
+  the default route. `discover --local` now shows the room's real LAN
+  address instead of unreachable bridge IPs, and the self-hosted status
+  footer shows an address peers can actually reach. (by @ishaan-jindal)
 
 ## [cli-v2.1.0] - 2026-08-24
 

@@ -17,7 +17,7 @@ func ipnet6(s string) net.Addr {
 }
 
 func TestUsableIPv4(t *testing.T) {
-	up := net.FlagUp | net.FlagMulticast
+	up := net.FlagUp | net.FlagMulticast | net.FlagRunning
 
 	cases := []struct {
 		name  string
@@ -28,7 +28,8 @@ func TestUsableIPv4(t *testing.T) {
 		{"routable", up, []net.Addr{ipnet4("192.168.1.10")}, "192.168.1.10"},
 		{"loopback interface", up | net.FlagLoopback, []net.Addr{ipnet4("127.0.0.1")}, ""},
 		{"down interface", 0, []net.Addr{ipnet4("192.168.1.10")}, ""},
-		{"no multicast flag", net.FlagUp, []net.Addr{ipnet4("192.168.1.10")}, ""},
+		{"no multicast flag", net.FlagUp | net.FlagRunning, []net.Addr{ipnet4("192.168.1.10")}, ""},
+		{"no carrier", net.FlagUp | net.FlagMulticast, []net.Addr{ipnet4("172.17.0.1")}, ""},
 		{"ipv6 only", up, []net.Addr{ipnet6("fd00::1")}, ""},
 		{"link-local only", up, []net.Addr{ipnet4("169.254.9.9")}, ""},
 		{
@@ -100,6 +101,44 @@ func TestSendBeaconsSmoke(t *testing.T) {
 	lis := []lanInterface{{iface: net.Interface{Name: "lo"}, ip: net.ParseIP("127.0.0.1").To4()}}
 
 	sendBeacons(lis, "FROG", 8080, "alice")
+}
+
+func TestPreferredLAN(t *testing.T) {
+	lis := []lanInterface{
+		{iface: net.Interface{Name: "docker0"}, ip: net.ParseIP("172.17.0.1").To4()},
+		{iface: net.Interface{Name: "wlp0s20f3"}, ip: net.ParseIP("10.28.26.116").To4()},
+	}
+
+	if got := preferredLAN(lis, "wlp0s20f3"); got.iface.Name != "wlp0s20f3" {
+		t.Errorf("preferred = %q, want wlp0s20f3", got.iface.Name)
+	}
+
+	if got := preferredLAN(lis, ""); got.iface.Name != "docker0" {
+		t.Errorf("fallback = %q, want docker0 (first)", got.iface.Name)
+	}
+}
+
+func TestOrderedLAN(t *testing.T) {
+	lis := []lanInterface{
+		{iface: net.Interface{Name: "docker0"}},
+		{iface: net.Interface{Name: "br-1"}},
+		{iface: net.Interface{Name: "wlp0s20f3"}},
+		{iface: net.Interface{Name: "incusbr0"}},
+	}
+
+	got := orderedLAN(lis, "wlp0s20f3")
+
+	want := []string{"wlp0s20f3", "docker0", "br-1", "incusbr0"}
+
+	for i, name := range want {
+		if got[i].iface.Name != name {
+			t.Fatalf("order[%d] = %q, want %q (got %v)", i, got[i].iface.Name, name, got)
+		}
+	}
+
+	if ordered := orderedLAN(lis, ""); ordered[0].iface.Name != "docker0" {
+		t.Errorf("no-route ordering changed the head: %q", ordered[0].iface.Name)
+	}
 }
 
 // TestBeaconRoundTrip verifies a real host hears its own beacon, the

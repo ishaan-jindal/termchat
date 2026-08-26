@@ -76,6 +76,7 @@ func newMux() *http.ServeMux {
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /ws", handleWebSocket)
+	mux.HandleFunc("GET /media", handleMediaWebSocket)
 	mux.HandleFunc("GET /discover", handleDiscover)
 
 	// Bootstrap scripts (one-liner install flow)
@@ -99,6 +100,9 @@ func StartServer(addr string) error {
 	roomsMutex.Lock()
 	rooms = map[string]*Room{}
 	roomsMutex.Unlock()
+
+	resetMediaTokens()
+	resetMediaHub()
 
 	stopMu.Lock()
 	stopCh = make(chan struct{})
@@ -157,6 +161,8 @@ func StartServer(addr string) error {
 			}
 			room.Mutex.Unlock()
 		}
+
+		hub.closeAll()
 
 		server.Close()
 	}()

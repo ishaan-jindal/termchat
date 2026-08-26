@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"termchat/shared"
+
+	"github.com/gorilla/websocket"
 )
 
 var serverBin string
@@ -553,4 +555,76 @@ func freeAddr(t *testing.T) string {
 	l.Close()
 
 	return addr
+}
+
+func TestE2EVoiceRelay(t *testing.T) {
+	addr := startRealServer(t)
+	url := "ws://" + addr + "/ws"
+
+	alice := e2eConnect(t, url, "VOIC", "alice", "")
+	defer alice.close()
+
+	bob := e2eConnect(t, url, "VOIC", "bob", "")
+	defer bob.close()
+
+	alice.nextOfType("history")
+	alice.nextOfType("system")
+	bob.nextOfType("history")
+	bob.nextOfType("system")
+
+	alice.send(Message{Type: "media_token"})
+	atok := alice.nextOfType("media_token").Token
+
+	bob.send(Message{Type: "media_token"})
+	btok := bob.nextOfType("media_token").Token
+
+	if atok == "" || btok == "" {
+		t.Fatalf("empty media tokens: %q %q", atok, btok)
+	}
+
+	amc, err := dialMedia("ws://"+addr, "VOIC", atok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer amc.close()
+
+	bmc, err := dialMedia("ws://"+addr, "VOIC", btok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bmc.close()
+
+	frame := shared.EncodeAudioFrame(
+		shared.MediaKindAudio,
+		shared.MediaCodecPCM16,
+		0x1234,
+		make([]byte, shared.AudioChunkBytes),
+	)
+
+	amc.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err = amc.conn.WriteMessage(websocket.BinaryMessage, frame)
+	if err != nil {
+		t.Fatalf("send voice frame: %v", err)
+	}
+
+	select {
+	case got := <-bmc.inbox:
+		_, _, voiceID, payload, ok := shared.ParseMediaFrame(got)
+
+		if !ok {
+			t.Fatal("relayed frame does not parse")
+		}
+
+		if voiceID == 0 || voiceID == 0x1234 {
+			t.Errorf("voiceID = %#x, want a server-assigned stamp", voiceID)
+		}
+
+		if len(payload) != shared.AudioChunkBytes {
+			t.Errorf("payload = %d bytes, want %d", len(payload), shared.AudioChunkBytes)
+		}
+
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer never received the voice frame")
+	}
 }

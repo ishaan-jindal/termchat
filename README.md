@@ -29,6 +29,19 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Host privileges with automatic succession on host disconnect
 - Room discovery: online via `/discover`, LAN via UDP multicast beacon
 
+**Voice:**
+
+- Push-to-talk voice chat in the same window: `/voice on`, then `Ctrl+T`
+  toggles transmit; muting kills the capture process so the OS shows the
+  mic released
+- 16 kHz mono PCM in 40 ms chunks over a binary `/media` WebSocket,
+  authenticated with single-use tokens from the control socket; playback
+  prefers `paplay` on Linux and falls back to `ffplay` elsewhere
+- Overlapping speakers are mixed locally per peer, with `[VC]` markers in
+  the sidebar and a `VOICE [TX]` badge in the status footer
+- Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH;
+  platforms without them simply keep chat-only mode
+
 **Terminal UI:**
 
 - Modern Bubble Tea TUI with a users sidebar
@@ -111,7 +124,8 @@ termchat discover --online | --local        # filter
 In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
-(react to a message), `/quit`.
+(react to a message), `/voice on|off` (voice session; `Ctrl+T` toggles
+transmit), `/quit`.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are
@@ -172,6 +186,8 @@ https://termchat.sacred99.online/7WHB
 - Room passwords for access control, 5 msgs/sec per-client rate limit
 - Idle connection cleanup (30 min) and buffered, shutdown-aware sends
 - Binary-name whitelist on `/bin/{binary}` redirects
+- Voice sessions require single-use tokens bound to the chat connection,
+  with per-connection frame-size and bandwidth caps on `/media`
 
 Recommended future hardening: global + per-room rate limits, join
 throttling, profanity / spam filtering, abuse detection.

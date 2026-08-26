@@ -152,6 +152,11 @@ func discoverLAN() {
 
 	if len(beacons) == 0 {
 		fmt.Println("  No LAN rooms found.")
+
+		if n := downedInterfaces(); n > 0 {
+			fmt.Printf("  Skipped %d down/no-carrier interface(s) during enumeration.\n", n)
+		}
+
 		fmt.Println()
 		fmt.Println("  LAN discovery only sees hosts on the same network segment;")
 		fmt.Println("  routers, hotspots, and AP isolation block it.")
@@ -225,6 +230,31 @@ func listenForBeacons(timeout time.Duration) []lanBeacon {
 	}
 
 	return results
+}
+
+// downedInterfaces counts interfaces that would qualify for discovery but
+// are currently carrier-down, so the empty-scan message can explain itself.
+func downedInterfaces() int {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return 0
+	}
+
+	n := 0
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 ||
+			iface.Flags&net.FlagMulticast == 0 ||
+			iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		if iface.Flags&net.FlagRunning == 0 {
+			n++
+		}
+	}
+
+	return n
 }
 
 // parseBeacon decodes TERMCHAT_DISCOVER|<json> payloads, falling back to the

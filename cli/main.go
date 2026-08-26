@@ -167,8 +167,9 @@ func main() {
 		cfg.Theme = opts.Theme
 		saveConfig(cfg)
 	}
-
 	model := NewModel(conn, nick, room, theme)
+	model.VoiceDevice = cfg.VoiceDevice
+
 	if opts.HostMode {
 		model.IsHost = true
 		model.HostIP = primaryLANIP()

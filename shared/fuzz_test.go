@@ -25,6 +25,35 @@ func FuzzRoomCodeValidation(f *testing.F) {
 	})
 }
 
+func FuzzParseMediaFrame(f *testing.F) {
+	f.Add([]byte(nil))
+	f.Add([]byte{0x01})
+	f.Add([]byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x01})
+	f.Add([]byte{0x02, 0xFF, 0xDE, 0xAD, 0xBE, 0xEF})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		kind, codec, voiceID, payload, ok := ParseMediaFrame(data)
+
+		if !ok {
+			return
+		}
+
+		if kind != MediaKindAudio && kind != MediaKindVideo {
+			t.Fatalf("ParseMediaFrame(%v) accepted unknown kind %#x", data, kind)
+		}
+
+		if len(payload) != len(data)-MediaHeaderLen {
+			t.Fatalf("payload length %d, want %d", len(payload), len(data)-MediaHeaderLen)
+		}
+
+		frame := EncodeAudioFrame(kind, codec, voiceID, payload)
+
+		if string(frame) != string(data) {
+			t.Fatalf("roundtrip mismatch: %v != %v", frame, data)
+		}
+	})
+}
+
 func stringsRepeatA(n int) string {
 	b := make([]byte, n)
 
