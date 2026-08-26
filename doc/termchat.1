@@ -152,8 +152,10 @@ Quit.
 Voice sessions ride a binary WebSocket endpoint on the same server and are
 authenticated with single-use tokens minted over the control socket. Audio
 is 16 kHz mono PCM in 40 ms chunks; overlapping speakers are mixed locally.
-The microphone only transmits while armed with Ctrl+T, and muting kills the
-capture process so the operating system shows the mic as released.
+Playback uses paplay when available (Linux) and falls back to ffplay; the
+TERMCHAT_VOICE_PLAYER environment variable forces either. The microphone
+only transmits while armed with Ctrl+T, and muting kills the capture
+process so the operating system shows the mic as released.
 .TP
 The default input is the platform default (PulseAudio then ALSA on Linux,
 AVFoundation default on macOS). Windows needs an explicit device name; set

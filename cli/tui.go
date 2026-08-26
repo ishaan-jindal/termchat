@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -368,7 +369,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		}
 
-		return m, waitForMessage(m.conn)
+		cmd := m.pendingCmd
+		m.pendingCmd = nil
+
+		return m, tea.Batch(waitForMessage(m.conn), cmd)
 
 	case voiceReadyMsg:
 		vs := &VoiceSession{conn: msg.conn}
@@ -381,10 +385,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		dumps, dumpErr := openVoiceDumps()
+		vs.dumps = dumps
+
+		if dumpErr != nil {
+			appendUI(&m, "voice debug dumps unavailable: "+dumpErr.Error())
+		} else if dumps != nil {
+			pid := os.Getpid()
+			dir := os.Getenv("TERMCHAT_VOICE_DEBUG")
+			appendUI(&m, fmt.Sprintf("voice debug: %s/tx-%d.wav and rx-%d.wav", dir, pid, pid))
+		}
+
 		m.voice = vs
 		appendUI(&m, "voice session joined - ctrl+t toggles talk")
 
-		return m, nil
+		return m, tea.Batch(
+			waitForVoiceEnd(msg.conn),
+			waitForPlaybackStop(vs.play),
+			voiceActivityTicker(),
+		)
 
 	case voiceErrorMsg:
 		m.tokenPending = false
@@ -401,11 +420,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case voicePlaybackStoppedMsg:
+		if m.voice != nil && m.voice.play == msg.play {
+			tail := msg.tail
+			if tail == "" {
+				tail = "unknown reason"
+			}
+
+			m.voice.Shutdown()
+			m.voice = nil
+			appendUI(&m, "playback stopped: "+tail)
+		}
+
+		return m, nil
+
+	case voiceActivityTickMsg:
+		if m.voice != nil {
+			return m, voiceActivityTicker()
+		}
+
+		return m, nil
+
 	case voiceMicStoppedMsg:
 		if m.voice != nil && m.voice.tx && m.voice.mic == msg.mic {
 			m.voice.tx = false
 			m.voice.mic = nil
-			appendUI(&m, "microphone stopped unexpectedly")
+
+			text := "microphone stopped unexpectedly"
+			if msg.tail != "" {
+				text += ": " + msg.tail
+			}
+
+			appendUI(&m, text)
 		}
 
 		return m, nil
@@ -490,10 +536,22 @@ func (m Model) View() string {
 	voiceInfo := ""
 
 	if m.voice != nil {
+		now := time.Now().UnixMilli()
+
+		sending := m.voice.tx &&
+			now-m.voice.lastSent.Load() < 600
+		hearing := now-m.voice.lastRecv.Load() < 600
+
 		voiceInfo = " - VOICE"
 
-		if m.voice.tx {
+		if sending {
+			voiceInfo += " [TX*]"
+		} else if m.voice.tx {
 			voiceInfo += " [TX]"
+		}
+
+		if hearing {
+			voiceInfo += " [RX*]"
 		}
 	}
 

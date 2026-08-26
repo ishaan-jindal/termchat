@@ -35,7 +35,8 @@ removed; rooms, discovery, and bootstrap all live in one binary.
   toggles transmit; muting kills the capture process so the OS shows the
   mic released
 - 16 kHz mono PCM in 40 ms chunks over a binary `/media` WebSocket,
-  authenticated with single-use tokens from the control socket
+  authenticated with single-use tokens from the control socket; playback
+  prefers `paplay` on Linux and falls back to `ffplay` elsewhere
 - Overlapping speakers are mixed locally per peer, with `[mic]` markers in
   the sidebar and a `VOICE [TX]` badge in the status footer
 - Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH;

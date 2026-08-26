@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -94,7 +98,218 @@ type micCapture struct {
 	cmd      *exec.Cmd
 	stdout   io.ReadCloser
 	exited   chan struct{}
+	tail     *stderrTail
 	stopOnce sync.Once
+}
+
+// stderrTail is an io.Writer keeping the last max bytes of a subprocess's
+// stderr so failures can be reported verbatim.
+type stderrTail struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func newStderrTail(max int) *stderrTail {
+	return &stderrTail{max: max}
+}
+
+func (s *stderrTail) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.buf = append(s.buf, p...)
+
+	if over := len(s.buf) - s.max; over > 0 {
+		s.buf = s.buf[over:]
+	}
+
+	return len(p), nil
+}
+
+func (s *stderrTail) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return string(s.buf)
+}
+
+// playoutProc is one supervised player process.
+type playoutProc struct {
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	exited   chan struct{}
+	tail     *stderrTail
+	stopOnce sync.Once
+	header   []byte // optional stream prefix; nil for raw PCM players
+	name     string
+}
+
+// wavHeader returns a canonical 44-byte PCM WAV header describing the
+// shared voice format; the size fields are streaming placeholders.
+func wavHeader() []byte {
+	buf := make([]byte, 44)
+
+	copy(buf[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:], 0x7FFFFFF6)
+	copy(buf[8:12], "WAVE")
+
+	copy(buf[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(buf[16:], 16)
+	binary.LittleEndian.PutUint16(buf[20:], 1)
+	binary.LittleEndian.PutUint16(buf[22:], uint16(shared.AudioChannels))
+	binary.LittleEndian.PutUint32(buf[24:], shared.AudioSampleRate)
+	byteRate := shared.AudioSampleRate * uint32(shared.AudioChannels) * 2
+	binary.LittleEndian.PutUint32(buf[28:], byteRate)
+	binary.LittleEndian.PutUint16(buf[32:], uint16(shared.AudioChannels*2))
+	binary.LittleEndian.PutUint16(buf[34:], 16)
+
+	copy(buf[36:40], "data")
+	binary.LittleEndian.PutUint32(buf[40:], 0x7FFFFFD2)
+
+	return buf
+}
+
+// playerKind identifies the resolved audio playback backend.
+type playerKind int
+
+const (
+	playerPaplay playerKind = iota
+	playerFfplay
+)
+
+// resolvePlayer picks the playback backend: paplay first on Linux, ffplay
+// everywhere else; TERMCHAT_VOICE_PLAYER forces one for testing.
+func resolvePlayer() (playerKind, error) {
+	switch os.Getenv("TERMCHAT_VOICE_PLAYER") {
+	case "paplay":
+		return playerPaplay, nil
+	case "ffplay":
+		return playerFfplay, nil
+	case "":
+	default:
+		return 0, fmt.Errorf("unknown TERMCHAT_VOICE_PLAYER %q (use paplay or ffplay)", os.Getenv("TERMCHAT_VOICE_PLAYER"))
+	}
+
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("paplay"); err == nil {
+			return playerPaplay, nil
+		}
+	}
+
+	return playerFfplay, nil
+}
+
+// playerCommand resolves the binary, args, and optional stream header for
+// the chosen player kind. A nil header means the player consumes raw PCM.
+func playerCommand(kind playerKind) (string, []string, []byte, error) {
+	switch kind {
+	case playerPaplay:
+		bin, err := exec.LookPath("paplay")
+		if err != nil {
+			return "", nil, nil, errors.New("paplay not found")
+		}
+
+		args := []string{
+			"--raw",
+			"--format=s16le",
+			"--rate", fmt.Sprint(shared.AudioSampleRate),
+			"--channels", fmt.Sprint(shared.AudioChannels),
+		}
+
+		return bin, args, nil, nil
+
+	case playerFfplay:
+		bin, err := exec.LookPath("ffplay")
+		if err != nil {
+			return "", nil, nil, errors.New("ffplay is required to hear voice; install ffmpeg and retry")
+		}
+
+		args := []string{
+			"-nodisp",
+			"-autoexit",
+			"-loglevel", "warning",
+			"-infbuf",
+			"-i", "pipe:0",
+		}
+
+		return bin, args, wavHeader(), nil
+	}
+
+	return "", nil, nil, errors.New("unknown player kind")
+}
+
+// startPlayProc launches the resolved player and fails fast when it dies
+// during the trial window; its stderr tail rides along in the error.
+func startPlayProc(kind playerKind) (*playoutProc, error) {
+	bin, args, header, err := playerCommand(kind)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command(bin, args...)
+
+	setPgid(cmd)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("player stdin: %w", err)
+	}
+
+	tail := newStderrTail(2048)
+	cmd.Stderr = tail
+
+	err = cmd.Start()
+	if err != nil {
+		stdin.Close()
+
+		return nil, fmt.Errorf("starting player: %w", err)
+	}
+
+	pp := &playoutProc{
+		cmd:    cmd,
+		stdin:  stdin,
+		exited: make(chan struct{}),
+		tail:   tail,
+		header: header,
+		name:   filepath.Base(bin),
+	}
+
+	go func() {
+		cmd.Wait()
+		close(pp.exited)
+	}()
+
+	select {
+	case <-pp.exited:
+		stdin.Close()
+
+		msg := tail.String()
+		if msg == "" {
+			msg = "exited immediately"
+		}
+
+		return nil, fmt.Errorf("%s failed to start: %s", pp.name, msg)
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	return pp, nil
+}
+
+func (pp *playoutProc) stop() {
+	pp.stopOnce.Do(func() {
+		pp.stdin.Close()
+
+		select {
+		case <-pp.exited:
+		default:
+			if pp.cmd.Process != nil {
+				pp.cmd.Process.Kill()
+			}
+
+			<-pp.exited
+		}
+	})
 }
 
 // startMic launches ffmpeg with the first input candidate that stays alive
@@ -105,19 +320,27 @@ func startMic(device string) (*micCapture, error) {
 		return nil, errors.New("ffmpeg is required for voice; install it and retry")
 	}
 
-	for _, input := range micInputCandidates(device) {
-		mc := tryMicCandidate(bin, input)
+	var lastErr error
 
-		if mc != nil {
+	for _, input := range micInputCandidates(device) {
+		mc, candErr := tryMicCandidate(bin, input)
+
+		if candErr == nil {
 			return mc, nil
 		}
+
+		lastErr = candErr
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
 	}
 
 	return nil, errors.New("no usable microphone input found")
 }
 
-func tryMicCandidate(bin string, input []string) *micCapture {
-	args := []string{"-nostdin", "-loglevel", "quiet"}
+func tryMicCandidate(bin string, input []string) (*micCapture, error) {
+	args := []string{"-nostdin", "-loglevel", "warning"}
 	args = append(args, input...)
 	args = append(args,
 		"-fflags", "+nobuffer",
@@ -128,24 +351,27 @@ func tryMicCandidate(bin string, input []string) *micCapture {
 	)
 
 	cmd := exec.Command(bin, args...)
-	cmd.Stderr = io.Discard
 
 	setPgid(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("capture pipe: %w", err)
 	}
+
+	tail := newStderrTail(2048)
+	cmd.Stderr = tail
 
 	err = cmd.Start()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("starting capture %q: %w", input[len(input)-1], err)
 	}
 
 	mc := &micCapture{
 		cmd:    cmd,
 		stdout: stdout,
 		exited: make(chan struct{}),
+		tail:   tail,
 	}
 
 	go func() {
@@ -155,11 +381,17 @@ func tryMicCandidate(bin string, input []string) *micCapture {
 
 	select {
 	case <-mc.exited:
-		return nil
+		msg := tail.String()
+
+		if msg == "" {
+			msg = "exited immediately"
+		}
+
+		return nil, fmt.Errorf("capture input %q failed: %s", input[len(input)-1], msg)
 	case <-time.After(250 * time.Millisecond):
 	}
 
-	return mc
+	return mc, nil
 }
 
 // stop kills the process and waits for its exit.
@@ -176,53 +408,178 @@ func (mc *micCapture) stop() {
 // VoiceSession bundles the media connection with its audio processes. All
 // methods run on the Bubble Tea update goroutine.
 type VoiceSession struct {
-	conn     *MediaConn
-	tx       bool
-	mic      *micCapture
-	playCmd  *exec.Cmd
-	playPipe io.WriteCloser
+	conn *MediaConn
+	tx   bool
+	mic  *micCapture
+	play *playoutProc
+
+	txSince    time.Time
+	playerName string
+
+	sentFrames atomic.Uint64
+	recvFrames atomic.Uint64
+
+	lastSent atomic.Int64 // unix millis of the last voiced outbound chunk
+	lastRecv atomic.Int64 // unix millis of the last voiced inbound chunk
+
+	dumps *voiceDumps
+}
+
+// voicePeakThreshold is the minimum sample magnitude treated as speech for
+// the TX/RX activity lights; open-mic room tone stays below it.
+const voicePeakThreshold = 700
+
+// chunkPeak returns the loudest sample magnitude in a chunk.
+func chunkPeak(samples []int16) int16 {
+	var peak int32
+
+	for _, v := range samples {
+		a := int32(v)
+
+		if a < 0 {
+			a = -a
+		}
+
+		if a > peak {
+			peak = a
+		}
+	}
+
+	if peak > 32767 {
+		peak = 32767
+	}
+
+	return int16(peak)
+}
+
+// voiceDumps mirrors both pipeline ends into WAV files when
+// TERMCHAT_VOICE_DEBUG points at a directory.
+type voiceDumps struct {
+	tx *os.File
+	rx *os.File
+}
+
+func openVoiceDumps() (*voiceDumps, error) {
+	dir := os.Getenv("TERMCHAT_VOICE_DEBUG")
+	if dir == "" {
+		return nil, nil
+	}
+
+	pid := os.Getpid()
+
+	tx, err := os.Create(filepath.Join(dir, fmt.Sprintf("tx-%d.wav", pid)))
+	if err != nil {
+		return nil, err
+	}
+
+	rx, err := os.Create(filepath.Join(dir, fmt.Sprintf("rx-%d.wav", pid)))
+	if err != nil {
+		tx.Close()
+
+		return nil, err
+	}
+
+	header := wavHeader()
+	tx.Write(header)
+	rx.Write(header)
+
+	return &voiceDumps{tx: tx, rx: rx}, nil
+}
+
+func (d *voiceDumps) writeTX(pcm []byte) {
+	if d == nil {
+		return
+	}
+
+	d.tx.Write(pcm)
+}
+
+func (d *voiceDumps) writeRX(mixed []byte) {
+	if d == nil {
+		return
+	}
+
+	d.rx.Write(mixed)
+}
+
+func (d *voiceDumps) close() {
+	if d == nil {
+		return
+	}
+
+	d.tx.Close()
+	d.rx.Close()
 }
 
 func (s *VoiceSession) startPlayout() error {
-	pc, err := playerCommand()
+	kind, err := resolvePlayer()
 	if err != nil {
 		return err
 	}
 
-	stdin, err := pc.StdinPipe()
+	pp, err := startPlayProc(kind)
 	if err != nil {
 		return err
 	}
 
-	pc.Stderr = io.Discard
+	s.playerName = pp.name
 
-	err = pc.Start()
-	if err != nil {
-		stdin.Close()
+	if len(pp.header) > 0 {
+		_, err = pp.stdin.Write(pp.header)
+		if err != nil {
+			pp.stop()
 
-		return fmt.Errorf("starting ffplay: %w", err)
+			return fmt.Errorf("writing wav header: %w", err)
+		}
 	}
 
-	s.playCmd = pc
-	s.playPipe = stdin
+	s.play = pp
 
-	go s.playoutLoop(stdin)
+	go s.playoutLoop(pp.stdin)
 
 	return nil
+}
+
+// playerStatus describes the playback backend for /voice diagnostics.
+func (s *VoiceSession) playerStatus() string {
+	if s.play == nil {
+		return "player: none"
+	}
+
+	state := "alive"
+
+	select {
+	case <-s.play.exited:
+		state = "dead"
+	default:
+	}
+
+	status := fmt.Sprintf("player %s %s", s.play.name, state)
+
+	tail := s.play.tail.String()
+
+	if tail != "" {
+		if len(tail) > 160 {
+			tail = "..." + tail[len(tail)-160:]
+		}
+
+		status += " - tail: " + tail
+	}
+
+	return status
 }
 
 func (s *VoiceSession) Shutdown() {
 	s.stopTx()
 	s.conn.close()
 
-	if s.playPipe != nil {
-		s.playPipe.Close()
+	if s.play != nil {
+		s.play.stop()
+		s.play = nil
 	}
 
-	if s.playCmd != nil {
-		s.playCmd.Wait()
-		s.playCmd = nil
-	}
+	s.dumps.close()
+	s.dumps = nil
 }
 
 func (s *VoiceSession) stopTx() {
@@ -268,6 +625,7 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 			}
 
 			r.push(bytesToSamples(payload))
+			s.recvFrames.Add(1)
 			started = true
 
 		case now := <-ticker.C:
@@ -296,7 +654,14 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 				continue
 			}
 
-			if _, err := stdin.Write(samplesToBytes(mix)); err != nil {
+			out := samplesToBytes(mix)
+			s.dumps.writeRX(out)
+
+			if chunkPeak(mix) >= voicePeakThreshold {
+				s.lastRecv.Store(time.Now().UnixMilli())
+			}
+
+			if _, err := stdin.Write(out); err != nil {
 				return
 			}
 
@@ -319,17 +684,49 @@ func pumpCapture(s *VoiceSession, mic *micCapture) {
 
 		frame := shared.EncodeAudioFrame(shared.MediaKindAudio, shared.MediaCodecPCM16, 0, buf)
 		s.conn.trySend(frame)
+		s.sentFrames.Add(1)
+		s.dumps.writeTX(buf)
+
+		if chunkPeak(bytesToSamples(buf)) >= voicePeakThreshold {
+			s.lastSent.Store(time.Now().UnixMilli())
+		}
 	}
 }
 
-type voiceMicStoppedMsg struct{ mic *micCapture }
+type voiceMicStoppedMsg struct {
+	mic  *micCapture
+	tail string
+}
+
+type voicePlaybackStoppedMsg struct {
+	play *playoutProc
+	tail string
+}
 
 func waitForMicStop(mic *micCapture) tea.Cmd {
 	return func() tea.Msg {
 		<-mic.exited
 
-		return voiceMicStoppedMsg{mic: mic}
+		return voiceMicStoppedMsg{mic: mic, tail: mic.tail.String()}
 	}
+}
+
+func waitForPlaybackStop(play *playoutProc) tea.Cmd {
+	return func() tea.Msg {
+		<-play.exited
+
+		return voicePlaybackStoppedMsg{play: play, tail: play.tail.String()}
+	}
+}
+
+type voiceActivityTickMsg struct{}
+
+// voiceActivityTicker drives the footer TX/RX activity lights while a
+// session is joined; Update re-arms it until the session ends.
+func voiceActivityTicker() tea.Cmd {
+	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+		return voiceActivityTickMsg{}
+	})
 }
 
 // toggleTalk arms or disarms the microphone; it returns a cmd that reports
@@ -342,8 +739,13 @@ func toggleTalk(m *Model) tea.Cmd {
 	}
 
 	if m.voice.tx {
+		if time.Since(m.voice.txSince) > time.Second && m.voice.sentFrames.Load() == 0 {
+			appendUI(m, "muted - no audio was captured; check 'pactl list short sources' or set voice_device in ~/.termchat/config.json")
+		} else {
+			appendUI(m, "microphone muted")
+		}
+
 		m.voice.stopTx()
-		appendUI(m, "microphone muted")
 
 		return nil
 	}
@@ -357,6 +759,7 @@ func toggleTalk(m *Model) tea.Cmd {
 
 	m.voice.mic = mic
 	m.voice.tx = true
+	m.voice.txSince = time.Now()
 	appendUI(m, "transmitting - ctrl+t to mute")
 
 	go pumpCapture(m.voice, mic)
@@ -364,24 +767,4 @@ func toggleTalk(m *Model) tea.Cmd {
 	return waitForMicStop(mic)
 }
 
-// playerCommand assembles the ffplay raw PCM playback command.
-func playerCommand() (*exec.Cmd, error) {
-	bin, err := exec.LookPath("ffplay")
-	if err != nil {
-		return nil, errors.New("ffplay is required to hear voice; install ffmpeg and retry")
-	}
-
-	args := []string{
-		"-nodisp",
-		"-autoexit",
-		"-loglevel", "quiet",
-		"-fflags", "+nobuffer",
-		"-infbuf",
-		"-f", "s16le",
-		"-ar", fmt.Sprint(shared.AudioSampleRate),
-		"-ac", fmt.Sprint(shared.AudioChannels),
-		"-i", "pipe:0",
-	}
-
-	return exec.Command(bin, args...), nil
-}
+// VoiceSession bundles
