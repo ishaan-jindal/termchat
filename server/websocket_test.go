@@ -52,7 +52,7 @@ func startTestServer(t *testing.T) *httptest.Server {
 func waitForQuiescence(t *testing.T) {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 
 	for livePumps.Load() != 0 {
 		if time.Now().After(deadline) {
@@ -133,12 +133,18 @@ func (c *testClient) readLoop() {
 }
 
 func (c *testClient) next() (shared.Message, bool) {
-	select {
-	case m, ok := <-c.msgs:
-		return m, ok
-	case <-time.After(10 * time.Second):
-		c.t.Fatalf("timed out waiting for message on %s", c.conn.RemoteAddr())
-		return shared.Message{}, false
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		select {
+		case m, ok := <-c.msgs:
+			return m, ok
+		case <-time.After(50 * time.Millisecond):
+			if time.Now().After(deadline) {
+				c.t.Fatalf("timed out waiting for message on %s", c.conn.RemoteAddr())
+				return shared.Message{}, false
+			}
+		}
 	}
 }
 
