@@ -1,9 +1,11 @@
 name: WebSocket Image
 
 on:
-  push:
-    tags:
-      - "cli-v*"
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -20,15 +22,8 @@ concurrency:
 
 jobs:
 
-  gate:
-    uses: ./.github/workflows/gate.yml
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
   docker:
     runs-on: ubuntu-latest
-
-    needs: gate
 
     timeout-minutes: 20
 

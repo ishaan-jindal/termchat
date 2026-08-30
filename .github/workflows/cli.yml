@@ -182,3 +182,28 @@ jobs:
       tag: ${{ inputs.tag || github.ref_name }}
     secrets:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
+  # GHCR image build, gated behind the release (no standalone tag trigger).
+  websocket-publish:
+    needs: release
+    uses: ./.github/workflows/websocket.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  # npm publish, gated behind the release (no standalone tag trigger).
+  # Chained via workflow_call so the OIDC workflow_ref resolves to cli.yml;
+  # the 8 @sacredcat/termchat* trusted publishers must be registered against
+  # cli.yml, not npm.yml.
+  npm-publish:
+    needs: release
+    uses: ./.github/workflows/npm.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write

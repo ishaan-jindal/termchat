@@ -3,21 +3,22 @@ name: npm Publish
 # Publishes the CLI to npm as @sacredcat/termchat plus one binary-only
 # package per platform (@sacredcat/termchat-linux-x64 etc).
 #
-# Runs standalone on cli-v* tags instead of being chained from cli.yml:
-# npm trusted publishing validates the OIDC workflow_ref claim against the
-# registered workflow filename, and that claim names the calling workflow
-# under workflow_call, which never matches.
+# Gated behind the GitHub release: cli.yml calls this workflow via
+# workflow_call after the release is created (same shape as aur.yml). npm
+# trusted publishing validates the OIDC workflow_ref claim, which now
+# resolves to cli.yml (the calling workflow) rather than this file. Each of
+# the 8 @sacredcat/termchat* packages must have a trusted publisher
+# configured on npmjs.com pointing at cli.yml, not npm.yml.
 #
-# Auth is OIDC trusted publishing (no NPM_TOKEN secret). Each package must
-# have a trusted publisher configured on npmjs.com pointing at this exact
-# workflow filename; renaming this file breaks publishing until every
-# package config is updated.
+# Auth is OIDC trusted publishing (no NPM_TOKEN secret).
 
 on:
 
-  push:
-    tags:
-      - "cli-v*"
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
 
   workflow_dispatch:
     inputs:
@@ -34,14 +35,8 @@ concurrency:
 
 jobs:
 
-  gate:
-    uses: ./.github/workflows/gate.yml
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
   publish:
     runs-on: ubuntu-latest
-    needs: gate
 
     timeout-minutes: 15
 

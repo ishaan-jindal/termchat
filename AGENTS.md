@@ -103,15 +103,20 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
   `go test -race` and bounded fuzzing as separate checks.
 - Tag `cli-v*` -> `.github/workflows/cli.yml`: builds 8 binaries, generates
   `termchat-checksums.txt`, creates the GitHub Release via `gh`, then calls
-  `aur.yml` (AUR package sync).
-- Tag `cli-v*` also triggers `.github/workflows/npm.yml`: gates, rebuilds 7
-  binaries, and publishes `@sacredcat/termchat` plus per-platform packages
-  via npm trusted publishing (OIDC; no NPM_TOKEN secret). It must stay a
-  standalone entry point - workflow_call chaining breaks OIDC trust
-  matching. First-ever publish of each package is manual (`just
-  npm-bootstrap`), after which tags publish automatically.
-- `websocket.yml` - GHCR image on `main` push, path-filtered; manually
-  dispatchable.
+  `aur.yml` (AUR package sync), `websocket.yml` (GHCR image), and `npm.yml`
+  (npm publish) as downstream jobs behind the release. None of those three
+  trigger on their own tag push anymore - they run only via `workflow_call`
+  from `cli.yml`.
+- `npm.yml` is chained from `cli.yml` via `workflow_call` (same shape as
+  `aur.yml`/`websocket.yml`). npm trusted publishing validates the OIDC
+  `workflow_ref` claim, which resolves to `cli.yml` (the caller), so each of
+  the 8 `@sacredcat/termchat*` packages must have its trusted publisher
+  registered against `cli.yml`, not `npm.yml`. First-ever publish of each
+  package is manual (`just npm-bootstrap`), after which tags publish
+  automatically. A manual `workflow_dispatch` of `npm.yml` directly will fail
+  OIDC (it expects `cli.yml`) - publish through `cli.yml`.
+- `websocket.yml` - GHCR image, gated behind the release via `workflow_call`
+  from `cli.yml`; manually dispatchable.
 - Dependabot keeps `gomod` and `github-actions` dependencies updated;
   dependency review runs on every PR.
 - Secrets: `AUR_SSH_PRIVATE_KEY`. Repo variables: `TERMCHAT_WS_URL` (baked
