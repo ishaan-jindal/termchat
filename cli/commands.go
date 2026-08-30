@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"termchat/shared"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 type command struct {
@@ -136,9 +138,9 @@ func maxUsageLen() int {
 }
 
 type suggestion struct {
-	primary string // left popup column: "/nick <nick>", ":fire:", "+1"
-	detail  string // right popup column: description or glyph
-	insert  string // what accepting the row puts into the input
+	primary      string          // left popup column: "/nick <nick>", ":fire:", "+1"
+	insert       string          // what accepting the row puts into the input
+	primaryStyle *lipgloss.Style // overrides row style when set
 }
 
 // Shortcodes align with shared.ReactionNames so /react names double as emoji.
@@ -170,7 +172,7 @@ var emojis = []struct {
 
 // matchSuggestions decides which completion mode applies to the input and
 // returns its rows plus the length of the token an accept would replace.
-func matchSuggestions(value string) ([]suggestion, int) {
+func matchSuggestions(value string, users []UserInfo, nick string) ([]suggestion, int) {
 	switch {
 
 	case strings.HasPrefix(value, "/") && !strings.ContainsAny(value, " \t\n"):
@@ -190,6 +192,10 @@ func matchSuggestions(value string) ([]suggestion, int) {
 	default:
 		token := value[strings.LastIndexAny(value, " \t\n")+1:]
 
+		if strings.HasPrefix(token, "@") {
+			return mentionSuggestions(token[1:], users, nick), len(token)
+		}
+
 		if strings.HasPrefix(token, ":") && !strings.Contains(token[1:], ":") {
 			query := strings.ToLower(strings.TrimPrefix(token, ":"))
 
@@ -206,7 +212,6 @@ func commandSuggestions(prefix string) []suggestion {
 	for _, c := range filterCommands(prefix) {
 		out = append(out, suggestion{
 			primary: c.usage,
-			detail:  c.description,
 			insert:  c.name + " ",
 		})
 	}
@@ -237,7 +242,6 @@ func reactionSuggestions(query string) []suggestion {
 
 		out = append(out, suggestion{
 			primary: ":" + name + ":",
-			detail:  emojiGlyph(name),
 			insert:  name,
 		})
 	}
@@ -252,8 +256,33 @@ func emojiSuggestions(query string) []suggestion {
 		if strings.HasPrefix(e.name, query) {
 			out = append(out, suggestion{
 				primary: ":" + e.name + ":",
-				detail:  e.glyph,
 				insert:  e.glyph + " ",
+			})
+		}
+	}
+
+	return out
+}
+
+func mentionSuggestions(query string, users []UserInfo, self string) []suggestion {
+	query = strings.ToLower(query)
+
+	var out []suggestion
+
+	for _, u := range users {
+		if u.Nick == self {
+			continue
+		}
+
+		if strings.HasPrefix(strings.ToLower(u.Nick), query) {
+			s := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(u.Color)).
+				Bold(true)
+
+			out = append(out, suggestion{
+				primary:      "@" + u.Nick,
+				insert:       "@" + u.Nick + " ",
+				primaryStyle: &s,
 			})
 		}
 	}

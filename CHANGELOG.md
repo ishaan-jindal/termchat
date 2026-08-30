@@ -7,6 +7,8 @@
 - Broadcast system messages when a user joins or leaves Voice Chat, visible
   in the chat history like nickname changes and room join/leave events.
   (by @ishaan-jindal)
+- @mention autocomplete: typing `@` opens a filtered popup of room members
+  with nicks rendered in their colors. (by @ishaan-jindal)
 
 ## [cli-v2.2.0] - 2026-08-26
 

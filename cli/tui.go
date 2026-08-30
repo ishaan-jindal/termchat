@@ -909,14 +909,14 @@ func completionMatches(m *Model) []suggestion {
 		return nil
 	}
 
-	matches, _ := matchSuggestions(m.input.Value())
+	matches, _ := matchSuggestions(m.input.Value(), m.users, m.nick)
 
 	return matches
 }
 
 // refreshCompletion reopens or refilters the popup from the current input.
 func refreshCompletion(m *Model) {
-	matches, _ := matchSuggestions(m.input.Value())
+	matches, _ := matchSuggestions(m.input.Value(), m.users, m.nick)
 
 	open := len(matches) > 0
 
@@ -947,7 +947,7 @@ func dismissCompletion(m *Model) {
 // acceptCompletion inserts the selected suggestion in place of the current
 // token and closes the popup.
 func acceptCompletion(m *Model) {
-	matches, tokenLen := matchSuggestions(m.input.Value())
+	matches, tokenLen := matchSuggestions(m.input.Value(), m.users, m.nick)
 
 	m.showPopup = false
 
@@ -998,16 +998,19 @@ func renderCompletion(m Model) string {
 		// Each column is rendered with one style so the selected row's
 		// background is not cut short by an inner reset sequence.
 		rowStyle := m.theme.base
-		detailStyle := m.theme.system
 
 		if i == sel {
 			rowStyle = m.theme.completionSelected
-			detailStyle = m.theme.completionSelected
+		}
+
+		primaryStyle := rowStyle
+		if s.primaryStyle != nil {
+			primaryStyle = s.primaryStyle.
+				Background(m.theme.base.GetBackground())
 		}
 
 		rows = append(rows,
-			rowStyle.Render(fmt.Sprintf("%-*s", width, s.primary))+
-				detailStyle.Render("  "+s.detail),
+			primaryStyle.Render(fmt.Sprintf("%-*s", width, s.primary)),
 		)
 	}
 
