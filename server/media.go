@@ -333,6 +333,11 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	broadcastUsersList(client.RoomID)
 
+	broadcastToRoom(client.RoomID, Message{
+		Type: "system",
+		Text: client.nickname() + " joined voice chat",
+	})
+
 	// The ack goes out before the write pump starts so this conn keeps
 	// gorilla's single-writer guarantee.
 	conn.WriteJSON(Message{Type: "ok"})
@@ -340,7 +345,29 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 	go mediaWritePump(mc)
 
 	defer func() {
+		client.mu.Lock()
+		wasInVoice := client.VoiceID != 0
+		client.mu.Unlock()
+
 		hub.remove(client)
+
+		roomsMutex.RLock()
+		room, exists := rooms[client.RoomID]
+		roomsMutex.RUnlock()
+
+		if exists {
+			room.Mutex.Lock()
+			inRoom := room.Clients[client]
+			room.Mutex.Unlock()
+
+			if inRoom && wasInVoice {
+				broadcastToRoom(client.RoomID, Message{
+					Type: "system",
+					Text: client.nickname() + " left voice chat",
+				})
+			}
+		}
+
 		broadcastUsersList(client.RoomID)
 	}()
 

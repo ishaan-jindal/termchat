@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Broadcast system messages when a user joins or leaves Voice Chat, visible
+  in the chat history like nickname changes and room join/leave events.
+  (by @ishaan-jindal)
+
 ## [cli-v2.2.0] - 2026-08-26
 
 ### Added
