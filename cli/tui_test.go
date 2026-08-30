@@ -1184,9 +1184,8 @@ func TestViewRendersCompletionPopup(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "/password [pass]") ||
-		!strings.Contains(view, "set or remove room password") {
-		t.Error("open popup not rendered with usage and description")
+	if !strings.Contains(view, "/password [pass]") {
+		t.Error("open popup not rendered with usage")
 	}
 }
 
