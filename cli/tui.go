@@ -62,6 +62,11 @@ type Model struct {
 	users     []UserInfo
 	connected bool
 
+	// serverURL, color, and conn.password carry the session credentials
+	// needed to rejoin after a transient network drop.
+	serverURL string
+	color     string
+
 	IsHost   bool
 	HostIP   string
 	HostPort int
@@ -374,6 +379,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Batch(waitForMessage(m.conn), cmd)
 
+	case connErrMsg:
+		if m.conn != nil {
+			select {
+			case <-m.conn.done:
+				// writePump already stopped
+			default:
+				close(m.conn.done)
+			}
+
+			if m.conn.conn != nil {
+				m.conn.conn.Close()
+			}
+		}
+
+		password := ""
+		if m.conn != nil {
+			password = m.conn.password
+		}
+
+		m.connected = false
+
+		if m.voice != nil {
+			m.voice.conn.close()
+			m.voice = nil
+			appendUI(&m, "voice session ended: connection lost")
+		}
+
+		appendUI(&m, "connection lost, reconnecting...")
+
+		return m, reconnectCmd(m.serverURL, m.room, m.nick, password, m.color)
+
+	case reconnectedMsg:
+		m.conn = msg.conn
+		m.connected = true
+
+		appendUI(&m, "reconnected")
+
+		return m, waitForMessage(m.conn)
+
+	case connFatalMsg:
+		m.connected = false
+
+		appendUI(&m, "reconnect failed: "+msg.err.Error())
+
+		return m, tea.Quit
+
 	case voiceReadyMsg:
 		vs := &VoiceSession{conn: msg.conn}
 
@@ -555,8 +606,14 @@ func (m Model) View() string {
 		}
 	}
 
+	state := "Connected"
+	if !m.connected {
+		state = "Reconnecting"
+	}
+
 	statusText := fmt.Sprintf(
-		"Connected - Room %s - %d users%s%s",
+		"%s - Room %s - %d users%s%s",
+		state,
 		m.room,
 		len(m.users),
 		scrollInfo,
@@ -573,6 +630,15 @@ func (m Model) View() string {
 			scrollInfo,
 			voiceInfo,
 		)
+
+		if !m.connected {
+			statusText = fmt.Sprintf(
+				"RECONNECTING - Room %s - %s:%d",
+				m.room,
+				m.HostIP,
+				m.HostPort,
+			)
+		}
 	}
 
 	status := m.theme.panel.

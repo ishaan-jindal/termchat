@@ -123,7 +123,7 @@ func main() {
 			Password: opts.Password,
 		}
 	} else {
-		conn, err = connectWebSocket(serverURL)
+		conn, err = connectWithRetry(serverURL)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -169,6 +169,8 @@ func main() {
 	}
 	model := NewModel(conn, nick, room, theme)
 	model.VoiceDevice = cfg.VoiceDevice
+	model.serverURL = serverURL
+	model.color = cfg.Color
 
 	if opts.HostMode {
 		model.IsHost = true
@@ -182,20 +184,48 @@ func main() {
 		tea.WithMouseCellMotion(),
 	)
 
-	_, err = p.Run()
+	finalModel, err := p.Run()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Close writePump by closing the done channel
-	select {
-	case <-conn.done:
-		// writePump already stopped
-	default:
-		close(conn.done)
+	// The model may have swapped connections during reconnect, so tear
+	// down the live one rather than the original.
+	live := conn
+	if fm, ok := finalModel.(Model); ok && fm.conn != nil {
+		live = fm.conn
 	}
 
-	conn.conn.Close()
+	// Close writePump by closing the done channel
+	select {
+	case <-live.done:
+		// writePump already stopped
+	default:
+		close(live.done)
+	}
+
+	live.conn.Close()
+}
+
+// connectWithRetry dials the server, tolerating transient flakes such as
+// a VPN mid-handshake, before giving up with the wrapped dial error.
+func connectWithRetry(serverURL string) (*Connection, error) {
+	backoff := time.Second
+
+	var conn *Connection
+	var err error
+
+	for attempt := 0; attempt < 3; attempt++ {
+		conn, err = connectWebSocket(serverURL)
+		if err == nil {
+			return conn, nil
+		}
+
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+
+	return nil, err
 }
 
 func parseArgs(args []string) (cliOptions, error) {
@@ -418,6 +448,8 @@ func startLocalServer(port int, password string) (<-chan error, error) {
 // on the returned connection for the TUI to consume. It returns the (possibly
 // reconnected) connection, or an error when the join failed outright.
 func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Reader, out io.Writer) (*Connection, error) {
+	effective := password
+
 	conn.Send <- Message{
 		Type:     "join",
 		Nick:     nick,
@@ -439,6 +471,7 @@ func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Re
 
 	if firstMsg.Type != "error" || firstMsg.Text != "invalid_password" {
 		conn.firstMsg = &firstMsg
+		conn.password = effective
 
 		return conn, nil
 	}
@@ -446,6 +479,7 @@ func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Re
 	fmt.Fprint(out, "Room requires a password: ")
 	pass, _ := bufio.NewReader(in).ReadString('\n')
 	pass = strings.TrimSpace(pass)
+	effective = pass
 
 	// Signal writePump to stop
 	close(conn.done)
@@ -478,6 +512,7 @@ func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Re
 	}
 
 	conn.firstMsg = &firstMsg
+	conn.password = effective
 
 	return conn, nil
 }

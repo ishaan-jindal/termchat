@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -1358,5 +1359,57 @@ func TestNoCommandSuggestionsMidText(t *testing.T) {
 
 	if m.showPopup {
 		t.Error("commands should not be suggested mid-message")
+	}
+}
+
+func TestConnErrMsgStartsReconnect(t *testing.T) {
+	m := testModel()
+	m.serverURL = "ws://127.0.0.1:9/ws"
+
+	m, cmd := update(t, m, connErrMsg{err: errors.New("boom")})
+
+	if m.connected {
+		t.Error("connected still true after connErrMsg")
+	}
+
+	if cmd == nil {
+		t.Error("expected a reconnect command")
+	}
+}
+
+func TestReconnectedMsgResumes(t *testing.T) {
+	m := testModel()
+
+	fresh := &Connection{
+		Send: make(chan Message, 32),
+		done: make(chan struct{}),
+	}
+
+	m, cmd := update(t, m, reconnectedMsg{conn: fresh})
+
+	if !m.connected {
+		t.Error("connected false after reconnectedMsg")
+	}
+
+	if m.conn != fresh {
+		t.Error("model did not adopt the new connection")
+	}
+
+	if cmd == nil {
+		t.Error("expected a waitForMessage command")
+	}
+}
+
+func TestConnFatalMsgQuits(t *testing.T) {
+	m := testModel()
+
+	_, cmd := update(t, m, connFatalMsg{err: errors.New("invalid_password")})
+
+	if cmd == nil {
+		t.Fatal("expected a quit command")
+	}
+
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("cmd returned %T, want tea.QuitMsg", cmd())
 	}
 }
