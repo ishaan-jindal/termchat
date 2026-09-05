@@ -41,6 +41,14 @@ func startRealServer(t *testing.T) string {
 
 	t.Cleanup(chatserver.Stop)
 
+	waitForTCP(t, addr)
+
+	return addr
+}
+
+func waitForTCP(t *testing.T, addr string) {
+	t.Helper()
+
 	// Wait for the listener to come up.
 	deadline := time.Now().Add(5 * time.Second)
 
@@ -49,7 +57,7 @@ func startRealServer(t *testing.T) string {
 		if err == nil {
 			conn.Close()
 
-			return addr
+			return
 		}
 
 		if time.Now().After(deadline) {
@@ -113,6 +121,63 @@ func TestConnectWebSocketRefused(t *testing.T) {
 		conn.conn.Close()
 		t.Fatal("expected connection error")
 	}
+}
+
+func TestConnectWebSocketErrorMentionsURL(t *testing.T) {
+	_, err := connectWebSocket("ws://127.0.0.1:1/ws")
+	if err == nil {
+		t.Fatal("expected connection error")
+	}
+
+	if !strings.Contains(err.Error(), "ws://127.0.0.1:1/ws") {
+		t.Errorf("err = %q, want the server URL", err)
+	}
+}
+
+func TestReconnectRecoversAfterRestart(t *testing.T) {
+	addr := startRealServer(t)
+	url := "ws://" + addr + "/ws"
+
+	conn, err := connectWebSocket(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go writePump(conn)
+
+	conn, err = joinRoom(conn, url, "RCVR", "alice", "", strings.NewReader(""), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	close(conn.done)
+	conn.conn.Close()
+
+	chatserver.Stop()
+
+	// A fresh server on the same address stands in for the recovered
+	// network; the client must rejoin it without prompting.
+	chatserver.SetLogOutput(io.Discard)
+
+	go func() {
+		_ = chatserver.StartServer(addr)
+	}()
+
+	t.Cleanup(chatserver.Stop)
+	waitForTCP(t, addr)
+
+	cmd := reconnectCmd(url, "RCVR", "alice", "", "")
+	msg, ok := cmd().(reconnectedMsg)
+	if !ok {
+		t.Fatalf("reconnect returned %T, want reconnectedMsg", cmd())
+	}
+
+	if msg.conn.firstMsg == nil || msg.conn.firstMsg.Type != "history" {
+		t.Fatalf("first message = %+v, want history", msg.conn.firstMsg)
+	}
+
+	close(msg.conn.done)
+	msg.conn.conn.Close()
 }
 
 func TestWritePump(t *testing.T) {

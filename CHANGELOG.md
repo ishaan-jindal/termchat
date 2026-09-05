@@ -10,6 +10,14 @@
 - @mention autocomplete: typing `@` opens a filtered popup of room members
   with nicks rendered in their colors. (by @ishaan-jindal)
 
+### Fixed
+
+- The client now survives NAT and VPN outages: the reader enforces a read
+  deadline backed by ping handling, transient drops trigger an automatic
+  rejoin with backoff (resyncing through the history replay), and initial
+  dial failures are retried and reported with the server URL instead of
+  failing silently. (by @ishaan-jindal)
+
 ## [cli-v2.2.0] - 2026-08-26
 
 ### Added
