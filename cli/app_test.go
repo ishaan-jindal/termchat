@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,15 +14,13 @@ import (
 
 func testHub(serverURL, base, room string, fresh bool) appModel {
 	return newAppModel(hubOptions{
-		room:       room,
-		fresh:      fresh,
-		serverURL:  serverURL,
-		base:       base,
-		port:       8080,
-		showOnline: true,
-		showLocal:  true,
-		cfg:        Config{Nick: "alice"},
-		theme:      registeredTheme("dark"),
+		room:      room,
+		fresh:     fresh,
+		serverURL: serverURL,
+		base:      base,
+		port:      8080,
+		cfg:       Config{Nick: "alice"},
+		theme:     registeredTheme("dark"),
 	})
 }
 
@@ -74,11 +73,82 @@ func TestHubPrefills(t *testing.T) {
 	}
 }
 
-func TestHubDiscoverFocusesList(t *testing.T) {
+func TestHubDiscoverFocusesForm(t *testing.T) {
 	a := testHub("ws://example.test/ws", "http://example.test", "", false)
 
+	if a.focus != focusNick {
+		t.Errorf("focus = %d, want nick field", a.focus)
+	}
+}
+
+func TestHubTabSkipsEmptyList(t *testing.T) {
+	a := testHub("ws://example.test/ws", "http://example.test", "", false)
+	a.focus = focusPass
+
+	// With no rows the list is unreachable; tab wraps to the room field.
+	a, _ = updateApp(t, a, tea.KeyMsg{Type: tea.KeyTab})
+
+	if a.focus != focusRoom {
+		t.Errorf("focus = %d, want room field (list skipped)", a.focus)
+	}
+
+	// Once a row appears, tab reaches the list from the room field.
+	a, _ = updateApp(t, a, onlineRoomsMsg{rooms: []shared.RoomInfo{{ID: "ABCD"}}})
+
+	for i := 0; i < 3; i++ {
+		a, _ = updateApp(t, a, tea.KeyMsg{Type: tea.KeyTab})
+	}
+
 	if a.focus != focusList {
-		t.Errorf("focus = %d, want list", a.focus)
+		t.Errorf("focus = %d, want list after rows appear", a.focus)
+	}
+}
+
+func TestHubScanEmptyListBouncesToNick(t *testing.T) {
+	a := testHub("ws://example.test/ws", "http://example.test", "", false)
+	a.focus = focusList
+
+	a, cmd := updateApp(t, a, onlineRoomsMsg{rooms: []shared.RoomInfo{}})
+
+	if a.focus != focusNick {
+		t.Errorf("focus = %d, want nick after list emptied", a.focus)
+	}
+
+	if cmd == nil {
+		t.Error("bounce should refocus the nick field")
+	}
+}
+
+func TestHubCtrlHHosts(t *testing.T) {
+	a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+
+	a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlH})
+
+	if cmd == nil {
+		t.Fatal("ctrl+h from a form field did not host")
+	}
+
+	if !a.busy {
+		t.Error("hub not busy after ctrl+h")
+	}
+}
+
+func TestHubCtrlTThemeCycles(t *testing.T) {
+	a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+	before := a.theme.Name
+
+	a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlT})
+
+	if cmd != nil {
+		t.Fatalf("ctrl+t returned a cmd, want nil: %v", cmd)
+	}
+
+	if a.theme.Name == before {
+		t.Errorf("theme did not cycle: %q", before)
+	}
+
+	if a.cfg.Theme != a.theme.Name {
+		t.Errorf("cfg.Theme = %q, want %q", a.cfg.Theme, a.theme.Name)
 	}
 }
 
@@ -184,15 +254,9 @@ func TestHubJoinEntersChat(t *testing.T) {
 		t.Errorf("chat viewport width = %d, want 68", a.chat.viewport.Width)
 	}
 
-	view := a.View()
-
-	if !strings.Contains(view, "Created room HUB1") {
-		t.Errorf("chat missing the share line:\n%s", view)
-	}
-
-	// The synthetic sizing repainted the share line to the viewport width.
-	if len(a.chat.messages) != 1 {
-		t.Fatalf("chat has %d lines, want the share line", len(a.chat.messages))
+	// No share line is appended on entry.
+	if len(a.chat.messages) != 0 {
+		t.Fatalf("chat has %d lines, want none (no share line)", len(a.chat.messages))
 	}
 }
 
@@ -235,12 +299,23 @@ func TestHubLockedRoomAsksPassword(t *testing.T) {
 		t.Error("hub still busy after the password rejection")
 	}
 
-	if !strings.Contains(a.errLine, "locked") {
-		t.Errorf("errLine = %q, want the locked hint", a.errLine)
+	if !a.passRequired {
+		t.Error("hub did not arm the inline password prompt")
+	}
+
+	if a.errLine != "" {
+		t.Errorf("errLine = %q, want empty (prompt is inline)", a.errLine)
 	}
 
 	if a.focus != focusPass {
 		t.Errorf("focus = %d, want password field", a.focus)
+	}
+
+	// The hint renders inline on the password field row.
+	a, _ = updateApp(t, a, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	if view := a.View(); !strings.Contains(view, "enter password") {
+		t.Errorf("hub view missing the inline password hint:\n%s", view)
 	}
 
 	a.pass.SetValue("secret")
@@ -258,6 +333,97 @@ func TestHubLockedRoomAsksPassword(t *testing.T) {
 	if a.screen != screenChat {
 		t.Fatal("hub did not enter chat after the password retry")
 	}
+}
+
+// TestHubLockedLANRoomAsksPassword drives the same password flow through a
+// locked LAN row: the beacon advertises locked, the join is rejected, and
+// the hub asks for the password in place.
+func TestHubLockedLANRoomAsksPassword(t *testing.T) {
+	addr := startRealServer(t)
+
+	host, err := connectWebSocket("ws://" + addr + "/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	go writePump(host)
+
+	if _, err := joinOnce(host, "HUB5", "host", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	host.Send <- Message{Type: "set_password", Password: "secret"}
+
+	if err := waitForLocked(addr, "HUB5"); err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		close(host.done)
+		host.conn.Close()
+	}()
+
+	// The LAN row points at the real server on loopback.
+	a := testHub("ws://example.test/ws", "http://example.test", "", false)
+	a.lan = []lanBeacon{{Room: "HUB5", Host: "host", IP: "127.0.0.1", Port: lanPort(addr), Locked: true}}
+	a.rebuildRows()
+	a.focus = focusList
+
+	if len(a.rows) != 1 || !a.rows[0].locked {
+		t.Fatalf("rows = %+v, want one locked lan row", a.rows)
+	}
+
+	cmd := a.joinRow(a.rows[0])
+
+	msg := cmd()
+	if _, ok := msg.(joinPasswordMsg); !ok {
+		t.Fatalf("lan join returned %T, want joinPasswordMsg", msg)
+	}
+
+	a, _ = updateApp(t, a, msg)
+
+	if !a.passRequired {
+		t.Error("hub did not arm the inline password prompt")
+	}
+
+	if a.errLine != "" {
+		t.Errorf("errLine = %q, want empty (prompt is inline)", a.errLine)
+	}
+
+	if a.focus != focusPass {
+		t.Errorf("focus = %d, want password field", a.focus)
+	}
+
+	// The password field carries into the retry against the LAN host.
+	a.pass.SetValue("secret")
+	join := a.startJoin(a.serverURL)
+
+	if join == nil {
+		t.Fatal("hub refused to retry with a password")
+	}
+
+	joined := join()
+	closeJoined(t, joined)
+
+	a, _ = updateApp(t, a, joined)
+
+	if a.screen != screenChat {
+		t.Fatal("hub did not enter chat after the LAN password retry")
+	}
+}
+
+func lanPort(addr string) int {
+	idx := strings.LastIndex(addr, ":")
+
+	if idx < 0 {
+		return 0
+	}
+
+	var port int
+
+	fmt.Sscanf(addr[idx+1:], "%d", &port)
+
+	return port
 }
 
 func TestHubJoinErrorSurfaces(t *testing.T) {
@@ -289,21 +455,26 @@ func TestHubScanBuildsRows(t *testing.T) {
 
 	a, _ = updateApp(t, a, lanRoomsMsg{beacons: []lanBeacon{
 		{Room: "IJKL", Host: "laptop", IP: "192.168.1.42", Port: 8080},
+		{Room: "LMNO", Host: "phone", IP: "192.168.1.43", Port: 8080, Locked: true},
 	}})
 
-	if len(a.rows) != 3 {
-		t.Fatalf("rows = %d, want 3", len(a.rows))
+	if len(a.rows) != 4 {
+		t.Fatalf("rows = %d, want 4", len(a.rows))
 	}
 
 	if a.rows[2].online || a.rows[2].addr != "192.168.1.42" {
 		t.Errorf("lan row = %+v, want the beacon address", a.rows[2])
 	}
 
+	if !a.rows[3].locked {
+		t.Errorf("lan row = %+v, want the locked flag", a.rows[3])
+	}
+
 	a, _ = updateApp(t, a, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	view := a.View()
 
-	for _, want := range []string{"termchat", "ABCD", "EFGH", "IJKL", "[locked]", "192.168.1.42"} {
+	for _, want := range []string{"termchat", "ABCD", "EFGH", "IJKL", "LMNO", "[locked]", "192.168.1.42"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("hub view missing %q", want)
 		}
@@ -364,11 +535,29 @@ func TestHubHeaderFooter(t *testing.T) {
 		"Password",
 		"ONLINE ROOMS",
 		"LAN ROOMS",
-		"enter join - tab focus - h host - ctrl+r rescan - esc quit",
+		"enter join - tab focus - ctrl+h host - ctrl+r rescan - ctrl+t theme",
+		"\u256d", // rounded box top-left corner
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("hub view missing %q", want)
 		}
+	}
+
+	// The box is centered: the first content line is left-padded.
+	lines := strings.Split(view, "\n")
+
+	found := false
+
+	for _, line := range lines {
+		if strings.Contains(line, "termchat") && strings.HasPrefix(line, " ") {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		t.Error("hub box not indented (centering padding missing)")
 	}
 }
 
@@ -394,8 +583,9 @@ func TestHubViewHasNoUnpaintedCells(t *testing.T) {
 			a.nick.SetCursor(3)
 			a.focus = focusNick
 		}},
-		{"locked-error", func(a *appModel) {
-			a.errLine = "Room is locked - enter the password"
+		{"locked-prompt", func(a *appModel) {
+			a.passRequired = true
+			a.pass.SetValue("hunter2")
 			a.focus = focusPass
 		}},
 		{"busy", func(a *appModel) {

@@ -88,7 +88,7 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
 - First joiner becomes host; on host disconnect the next-oldest client succeeds.
 - Room is deleted when empty; history capped at 30 messages.
 - Rate limit: 5 frames/sec per client; idle clients disconnected after 30 min.
-- `termchat discover --online` hits `/discover`; LAN discovery uses a UDP
+- The hub's ONLINE ROOMS list hits `/discover`; LAN discovery uses a UDP
   multicast beacon on `224.0.0.167:9999`.
 - The server renders `server/scripts/bootstrap.sh` / `.ps1` with
   `{Room, BaseURL, Version}`; scripts download release binaries from GitHub

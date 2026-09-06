@@ -45,10 +45,7 @@ type cliOptions struct {
 
 	Theme string
 
-	HostMode     bool
-	DiscoverMode bool
-	OnlineOnly   bool
-	LocalOnly    bool
+	HostMode bool
 }
 
 func main() {
@@ -67,15 +64,6 @@ func main() {
 		return
 	}
 
-	if opts.DiscoverMode && !stdoutIsTTY() {
-		runDiscover(discoverOptions{
-			Online: opts.OnlineOnly,
-			Local:  opts.LocalOnly,
-			Base:   discoverBaseURL(opts),
-		})
-		return
-	}
-
 	room := opts.Room
 	fresh := false
 
@@ -87,7 +75,7 @@ func main() {
 			log.Fatalf("invalid room code %q", room)
 		}
 
-		if room == "" && !opts.DiscoverMode {
+		if room == "" {
 			room = shared.GenerateRoomCode()
 			fresh = true
 		}
@@ -114,17 +102,15 @@ func main() {
 	}
 
 	app := newAppModel(hubOptions{
-		room:       room,
-		fresh:      fresh,
-		password:   opts.Password,
-		serverURL:  websocketURL(opts),
-		base:       discoverBaseURL(opts),
-		hostMode:   opts.HostMode,
-		port:       opts.Port,
-		showOnline: !opts.LocalOnly,
-		showLocal:  !opts.OnlineOnly,
-		cfg:        cfg,
-		theme:      theme,
+		room:      room,
+		fresh:     fresh,
+		password:  opts.Password,
+		serverURL: websocketURL(opts),
+		base:      discoverBaseURL(opts),
+		hostMode:  opts.HostMode,
+		port:      opts.Port,
+		cfg:       cfg,
+		theme:     theme,
 	})
 
 	p := tea.NewProgram(
@@ -159,17 +145,6 @@ func main() {
 	live.conn.Close()
 }
 
-// stdoutIsTTY reports whether plain table output would be seen by a human.
-// Piped discover output keeps the legacy printed tables for scripts.
-func stdoutIsTTY() bool {
-	st, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-
-	return st.Mode()&os.ModeCharDevice != 0
-}
-
 func parseArgs(args []string) (cliOptions, error) {
 	opts := cliOptions{
 		Server: DefaultWS,
@@ -187,11 +162,6 @@ func parseArgs(args []string) (cliOptions, error) {
 		if !strings.HasPrefix(arg, "-") {
 			if len(positionals) == 0 && arg == "host" {
 				opts.HostMode = true
-				continue
-			}
-
-			if len(positionals) == 0 && arg == "discover" {
-				opts.DiscoverMode = true
 				continue
 			}
 
@@ -278,12 +248,6 @@ func parseArgs(args []string) (cliOptions, error) {
 			}
 			opts.Theme = value
 
-		case "online":
-			opts.OnlineOnly = true
-
-		case "local":
-			opts.LocalOnly = true
-
 		default:
 			return opts, fmt.Errorf("unknown flag %s", arg)
 		}
@@ -304,7 +268,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `Usage:
   termchat [options] [ROOM]
   termchat host [ROOM] [options]
-  termchat discover [--online] [--local]
 
 Cloud rooms:
   termchat
@@ -322,10 +285,7 @@ LAN join:
   termchat FROG --host 192.168.1.42 --port 9000
   termchat FROG --host 192.168.1.42 --password secret
 
-Discover rooms:
-  termchat discover              Show online + LAN rooms
-  termchat discover --online     Show only online rooms
-  termchat discover --local      Show only LAN rooms
+The hub screen lists online and LAN rooms; Enter joins the selected room.
 
 Options:
   --room CODE       Join an existing room by code
@@ -334,8 +294,6 @@ Options:
   --password PASS   Room password (for hosting or joining)
   --server URL      WebSocket server URL (default: %s)
   --theme NAME      Color theme: %s (default: system)
-  --online          Discover: show only online rooms
-  --local           Discover: show only LAN rooms
   --version, -v         Show version and exit
   --help, -h        Show this help and exit
 `, defaultLANPort, DefaultWS, validThemes())

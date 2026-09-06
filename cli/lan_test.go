@@ -72,6 +72,18 @@ func TestParseBeacon(t *testing.T) {
 		t.Fatalf("beacon = %+v", beacon)
 	}
 
+	if beacon.Locked {
+		t.Error("unlocked beacon reported locked")
+	}
+
+	locked, ok := parseBeacon(
+		[]byte(shared.DiscoveryMagic+`|{"room":"FROG","port":8080,"locked":true}`),
+		src,
+	)
+	if !ok || !locked.Locked {
+		t.Fatalf("locked beacon = (%+v, %v), want locked", locked, ok)
+	}
+
 	fallback, ok := parseBeacon(
 		[]byte(shared.DiscoveryMagic+`|{"room":"FROG","port":9000}`),
 		src,
@@ -94,13 +106,13 @@ func TestParseBeacon(t *testing.T) {
 }
 
 func TestSendBeaconsEmptyInterfaces(t *testing.T) {
-	sendBeacons(nil, "FROG", 8080, "alice")
+	sendBeacons(nil, "FROG", 8080, "alice", false)
 }
 
 func TestSendBeaconsSmoke(t *testing.T) {
 	lis := []lanInterface{{iface: net.Interface{Name: "lo"}, ip: net.ParseIP("127.0.0.1").To4()}}
 
-	sendBeacons(lis, "FROG", 8080, "alice")
+	sendBeacons(lis, "FROG", 8080, "alice", true)
 }
 
 func TestPreferredLAN(t *testing.T) {
@@ -157,7 +169,7 @@ func TestBeaconRoundTrip(t *testing.T) {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
-	sendBeacons(lis, "FROG", 8080, "alice")
+	sendBeacons(lis, "FROG", 8080, "alice", true)
 
 	beacons := <-found
 

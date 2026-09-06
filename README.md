@@ -25,7 +25,8 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 **Chat:**
 
 - Realtime WebSocket messaging with in-memory history (last 30 messages)
-- Room passwords (locked / unlocked rooms) with interactive prompt on join
+- Room passwords (locked / unlocked rooms); locked rooms ask for the
+  password in the hub's join form
 - Host privileges with automatic succession on host disconnect
 - Room discovery: online via `/discover`, LAN via UDP multicast beacon
 
@@ -44,7 +45,9 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 
 **Terminal UI:**
 
-- Modern Bubble Tea TUI with a users sidebar
+- One hub screen: join form (room, nickname, password) with online and LAN
+  room lists below, centered in a bordered box; `Ctrl+T` cycles themes
+- Modern Bubble Tea chat TUI with a users sidebar
 - Mention highlighting (`@nickname`), nickname colors, input history
 - Typing indicators and a status footer
 - Color themes: system (terminal-native, adaptive accents) or forced
@@ -96,7 +99,6 @@ Then:
 termchat          # create a new room
 termchat FROG     # join a room
 termchat host     # host a LAN room
-termchat discover # list online and LAN rooms
 ```
 
 ## Quick Links
@@ -117,9 +119,10 @@ termchat FROG --server wss://my.server/ws   # custom server
 termchat host [ROOM]      # LAN host mode (embeds the server)
 termchat host --password secret             # lock the room
 termchat FROG --host 192.168.1.42           # join a LAN host
-termchat discover         # list online and LAN rooms
-termchat discover --online | --local        # filter
 ```
+
+The hub screen lists online and LAN rooms below the join form; select one
+and press `Enter` to join it directly.
 
 In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
@@ -157,7 +160,7 @@ termchat host FROG --port 9000 --password secret
 ```
 
 A UDP beacon is announced on every network interface each second, over both
-multicast and broadcast, so `termchat discover --local` finds your room.
+multicast and broadcast, so the hub's LAN ROOMS list finds your room.
 `--server` takes priority over `--host` / `--port`.
 
 LAN discovery only crosses one link: it cannot see through routers, NAT

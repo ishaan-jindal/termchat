@@ -27,7 +27,7 @@ const (
 	focusList
 )
 
-// hubRow is one selectable discover row: an online room or a LAN beacon.
+// hubRow is one selectable room row: an online room or a LAN beacon.
 type hubRow struct {
 	online bool
 	room   string
@@ -64,7 +64,7 @@ func scanOnlineCmd(base string) tea.Cmd {
 	}
 }
 
-// scanLANCmd listens for host beacons; it blocks ~3s like discover --local.
+// scanLANCmd listens for host beacons; it blocks ~3s like the LAN scan.
 func scanLANCmd() tea.Cmd {
 	return func() tea.Msg {
 		return lanRoomsMsg{beacons: listenForBeacons(3 * time.Second)}
@@ -85,17 +85,15 @@ func hostServerCmd(port int, password string) tea.Cmd {
 
 // hubOptions carries the launch configuration main parsed from argv.
 type hubOptions struct {
-	room       string
-	fresh      bool
-	password   string
-	serverURL  string
-	base       string
-	hostMode   bool
-	port       int
-	showOnline bool
-	showLocal  bool
-	cfg        Config
-	theme      Theme
+	room      string
+	fresh     bool
+	password  string
+	serverURL string
+	base      string
+	hostMode  bool
+	port      int
+	cfg       Config
+	theme     Theme
 }
 
 type appModel struct {
@@ -106,9 +104,6 @@ type appModel struct {
 	fresh     bool
 	hostMode  bool
 	port      int
-
-	showOnline bool
-	showLocal  bool
 
 	cfg   Config
 	theme Theme
@@ -130,6 +125,10 @@ type appModel struct {
 	busy     bool
 	busyText string
 	errLine  string
+
+	// passRequired prompts for the password inline on its field row: set
+	// when a locked room rejects the join, cleared on the next attempt.
+	passRequired bool
 
 	conn *Connection
 	chat Model
@@ -167,28 +166,24 @@ func newAppModel(o hubOptions) appModel {
 	sp.Style = o.theme.system
 
 	m := appModel{
-		serverURL:  o.serverURL,
-		base:       o.base,
-		fresh:      o.fresh,
-		hostMode:   o.hostMode,
-		port:       o.port,
-		showOnline: o.showOnline,
-		showLocal:  o.showLocal,
-		cfg:        o.cfg,
-		theme:      o.theme,
-		room:       room,
-		nick:       nickInput,
-		pass:       pass,
-		spin:       sp,
+		serverURL: o.serverURL,
+		base:      o.base,
+		fresh:     o.fresh,
+		hostMode:  o.hostMode,
+		port:      o.port,
+		cfg:       o.cfg,
+		theme:     o.theme,
+		room:      room,
+		nick:      nickInput,
+		pass:      pass,
+		spin:      sp,
 	}
 
 	m.applyHubInputStyles()
 
-	// The discover flow lands on the room list; a known room lands on the
-	// nickname field; a fresh room keeps the code field focused for edits.
+	// A fresh room keeps the code field focused for edits; a known room
+	// lands on the nickname field. The room list is reached by tab.
 	switch {
-	case o.room == "" && !o.fresh:
-		m.focus = focusList
 	case o.fresh:
 		m.focus = focusRoom
 	default:
@@ -266,13 +261,7 @@ func (m *appModel) liveConn() *Connection {
 func (m appModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
-	if m.showOnline {
-		cmds = append(cmds, scanOnlineCmd(m.base))
-	}
-
-	if m.showLocal {
-		cmds = append(cmds, scanLANCmd())
-	}
+	cmds = append(cmds, scanOnlineCmd(m.base), scanLANCmd())
 
 	cmds = append(cmds, spinner.Tick, textinput.Blink)
 
@@ -333,14 +322,14 @@ func (m appModel) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onlineDone = true
 		m.rebuildRows()
 
-		return m, nil
+		return m, m.repairFocus()
 
 	case lanRoomsMsg:
 		m.lan = msg.beacons
 		m.lanDone = true
 		m.rebuildRows()
 
-		return m, nil
+		return m, m.repairFocus()
 
 	case hostedMsg:
 		return m.onHosted()
@@ -356,7 +345,8 @@ func (m appModel) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case joinPasswordMsg:
 		m.busy = false
-		m.errLine = "Room is locked - enter the password"
+		m.errLine = ""
+		m.passRequired = true
 		m.focus = focusPass
 
 		return m, m.focusInput()
@@ -387,7 +377,7 @@ func (m appModel) updateHome(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateHomeKey handles hub keys. Typing goes to the focused field; list
-// focus drives the discover rows instead.
+// focus drives the room rows instead. Ctrl keys are global.
 func (m appModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -403,15 +393,31 @@ func (m appModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		return m, m.rescan()
 
+	case "ctrl+h":
+		if m.busy || m.hostMode {
+			return m, nil
+		}
+
+		return m, m.startHosting()
+
+	case "ctrl+t":
+		if m.busy {
+			return m, nil
+		}
+
+		m.cycleTheme()
+
+		return m, nil
+
 	case "tab", "shift+tab":
 		if m.busy {
 			return m, nil
 		}
 
 		if msg.String() == "tab" {
-			m.focus = (m.focus + 1) % 4
+			m.cycleFocus(1)
 		} else {
-			m.focus = (m.focus + 3) % 4
+			m.cycleFocus(-1)
 		}
 
 		return m, m.focusInput()
@@ -428,9 +434,9 @@ func (m appModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.String() == "up" {
-			m.focus = (m.focus + 3) % 4
+			m.cycleFocus(-1)
 		} else {
-			m.focus = (m.focus + 1) % 4
+			m.cycleFocus(1)
 		}
 
 		return m, m.focusInput()
@@ -445,19 +451,6 @@ func (m appModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, m.startJoin(m.serverURL)
-
-	case "r", "h", "ctrl+h":
-		if m.busy || m.focus != focusList {
-			break
-		}
-
-		if msg.String() == "r" {
-			return m, m.rescan()
-		}
-
-		if !m.hostMode {
-			return m, m.startHosting()
-		}
 	}
 
 	if m.busy || m.focus == focusList {
@@ -478,7 +471,75 @@ func (m appModel) updateHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// moveSel steps the discover cursor, wrapping around the combined rows.
+// focusTargets lists the reachable focus positions; the room list is only
+// reachable while it has rows, so focus never lands on an empty list.
+func (m appModel) focusTargets() []int {
+	targets := []int{focusRoom, focusNick, focusPass}
+
+	if len(m.rows) > 0 {
+		targets = append(targets, focusList)
+	}
+
+	return targets
+}
+
+// cycleFocus moves focus by dir within the reachable targets.
+func (m *appModel) cycleFocus(dir int) {
+	targets := m.focusTargets()
+
+	idx := 0
+
+	for i, t := range targets {
+		if t == m.focus {
+			idx = i
+
+			break
+		}
+	}
+
+	m.focus = targets[(idx+dir+len(targets))%len(targets)]
+}
+
+// repairFocus bounces focus off the room list when a scan leaves it empty.
+func (m *appModel) repairFocus() tea.Cmd {
+	if m.focus != focusList || len(m.rows) > 0 {
+		return nil
+	}
+
+	m.focus = focusNick
+
+	return m.focusInput()
+}
+
+// cycleTheme steps to the next registered theme and persists the choice.
+func (m *appModel) cycleTheme() {
+	names := themeNames()
+
+	idx := 0
+
+	for i, name := range names {
+		if name == m.theme.Name {
+			idx = i
+
+			break
+		}
+	}
+
+	next := names[(idx+1)%len(names)]
+
+	theme, err := resolveTheme(next)
+	if err != nil {
+		return
+	}
+
+	m.theme = theme
+	m.cfg.Theme = next
+	saveConfig(m.cfg)
+	m.spin.Style = theme.system
+	m.applyHubInputStyles()
+}
+
+// moveSel steps the room-list cursor, wrapping around the combined rows.
 func (m *appModel) moveSel(dir string) {
 	if len(m.rows) == 0 {
 		return
@@ -495,27 +556,24 @@ func (m *appModel) moveSel(dir string) {
 func (m *appModel) rebuildRows() {
 	var rows []hubRow
 
-	if m.showOnline {
-		for _, r := range m.online {
-			rows = append(rows, hubRow{
-				online: true,
-				room:   r.ID,
-				host:   r.HostNick,
-				users:  r.UserCount,
-				locked: r.HasPassword,
-			})
-		}
+	for _, r := range m.online {
+		rows = append(rows, hubRow{
+			online: true,
+			room:   r.ID,
+			host:   r.HostNick,
+			users:  r.UserCount,
+			locked: r.HasPassword,
+		})
 	}
 
-	if m.showLocal {
-		for _, b := range m.lan {
-			rows = append(rows, hubRow{
-				room: b.Room,
-				host: b.Host,
-				addr: b.IP,
-				port: b.Port,
-			})
-		}
+	for _, b := range m.lan {
+		rows = append(rows, hubRow{
+			room:   b.Room,
+			host:   b.Host,
+			addr:   b.IP,
+			port:   b.Port,
+			locked: b.Locked,
+		})
 	}
 
 	m.rows = rows
@@ -537,17 +595,11 @@ func (m *appModel) rescan() tea.Cmd {
 	m.rows = nil
 	m.sel = 0
 
-	var cmds []tea.Cmd
-
-	if m.showOnline {
-		cmds = append(cmds, scanOnlineCmd(m.base))
+	cmds := []tea.Cmd{
+		scanOnlineCmd(m.base),
+		scanLANCmd(),
+		spinner.Tick,
 	}
-
-	if m.showLocal {
-		cmds = append(cmds, scanLANCmd())
-	}
-
-	cmds = append(cmds, spinner.Tick)
 
 	return tea.Batch(cmds...)
 }
@@ -601,12 +653,13 @@ func (m *appModel) startJoin(serverURL string) tea.Cmd {
 	m.busy = true
 	m.busyText = "Joining room " + room + "..."
 	m.errLine = ""
+	m.passRequired = false
 	m.blurHomeInputs()
 
 	return joinCmd(serverURL, room, nick, strings.TrimSpace(m.pass.Value()), m.cfg.Color)
 }
 
-// joinRow fills the form from a discover row and joins it directly.
+// joinRow fills the form from a room row and joins it directly.
 func (m *appModel) joinRow(row hubRow) tea.Cmd {
 	m.room.SetValue(row.room)
 
@@ -642,7 +695,7 @@ func (m appModel) onHosted() (tea.Model, tea.Cmd) {
 	m.serverURL = fmt.Sprintf("ws://localhost:%d/ws", m.port)
 	m.busyText = "Joining room " + room + " (self-hosted)..."
 
-	startLANBroadcaster(room, m.port, nick)
+	startLANBroadcaster(room, m.port, nick, strings.TrimSpace(m.pass.Value()) != "")
 
 	return m, joinCmd(m.serverURL, room, nick, strings.TrimSpace(m.pass.Value()), m.cfg.Color)
 }
@@ -667,10 +720,6 @@ func (m appModel) enterChat(conn *Connection) (tea.Model, tea.Cmd) {
 		chat.HostPort = m.port
 	}
 
-	if line := shareLine(m); line != "" {
-		appendUI(&chat, line)
-	}
-
 	if m.width > 0 && m.height > 0 {
 		sized, _ := chat.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 		chat = sized.(Model)
@@ -682,23 +731,6 @@ func (m appModel) enterChat(conn *Connection) (tea.Model, tea.Cmd) {
 	return m, m.chat.Init()
 }
 
-// shareLine tells the new chatter how peers can join: the one-liner URL for
-// fresh cloud rooms, direct LAN instructions when self-hosting.
-func shareLine(m appModel) string {
-	room := strings.TrimSpace(m.room.Value())
-
-	if m.hostMode {
-		return fmt.Sprintf("Hosting room %s - peers join: termchat %s --host %s --port %d",
-			room, room, primaryLANIP(), m.port)
-	}
-
-	if m.fresh {
-		return fmt.Sprintf("Created room %s - share: %s/%s", room, m.base, room)
-	}
-
-	return ""
-}
-
 func (m appModel) View() string {
 	if m.screen == screenChat {
 		return m.chat.View()
@@ -707,12 +739,21 @@ func (m appModel) View() string {
 	return m.viewHome()
 }
 
+// hubMargin is the minimum gap between the hub box and the terminal edge.
+const hubMargin = 2
+
+// hubBoxWidth is the hub box target width including its border and padding.
+const hubBoxWidth = 76
+
 func (m appModel) viewHome() string {
 	width := max(m.width, 20)
 
+	boxWidth := min(hubBoxWidth, max(width-2*hubMargin, 20))
+	contentWidth := boxWidth - 4 // border 2 + panel padding 2
+
 	rows := []string{
-		m.viewHubHeader(width),
-		m.hubRule(width),
+		m.viewHubHeader(contentWidth),
+		m.hubRule(contentWidth),
 		"",
 		m.theme.system.Render("JOIN OR CREATE"),
 	}
@@ -722,26 +763,44 @@ func (m appModel) viewHome() string {
 		rows = append(rows, "", line)
 	}
 
-	if m.showOnline {
-		rows = append(rows, "")
-		rows = append(rows, m.viewOnline(width)...)
-	}
+	rows = append(rows, "")
+	rows = append(rows, m.viewOnline(contentWidth)...)
 
-	if m.showLocal {
-		rows = append(rows, "")
-		rows = append(rows, m.viewLocal(width)...)
-	}
+	rows = append(rows, "")
+	rows = append(rows, m.viewLocal(contentWidth)...)
 
-	rows = append(rows, "", m.hubRule(width), m.viewFooter())
+	rows = append(rows, "", m.hubRule(contentWidth), m.viewFooter())
 
 	for i := range rows {
-		rows[i] = m.theme.base.Width(width).Render(rows[i])
+		rows[i] = m.theme.base.Width(contentWidth).Render(rows[i])
+	}
+
+	boxed := m.theme.panel.Width(boxWidth).Render(strings.Join(rows, "\n"))
+
+	// Center the box on the canvas; paint every surrounding cell with the
+	// theme background so no terminal colors bleed through.
+	left := max((width-lipgloss.Width(boxed))/2, 0)
+	lines := strings.Split(boxed, "\n")
+	top := max((m.height-len(lines))/2, 0)
+
+	out := make([]string, 0, top+len(lines))
+
+	for i := 0; i < top; i++ {
+		out = append(out, "")
+	}
+
+	for _, line := range lines {
+		out = append(out, m.theme.base.Render(strings.Repeat(" ", left))+line)
+	}
+
+	for i := range out {
+		out[i] = m.theme.base.Width(width).Render(out[i])
 	}
 
 	return m.theme.base.
 		Width(width).
-		Height(max(m.height, 10)).
-		Render(strings.Join(rows, "\n"))
+		Height(max(m.height, len(out))).
+		Render(strings.Join(out, "\n"))
 }
 
 // viewHubHeader renders the title bar: termchat left, version and theme
@@ -775,10 +834,15 @@ func (m appModel) viewForm() []string {
 		roomLine += m.theme.system.Render(" (new room)")
 	}
 
+	passLine := restyleBareSpaces(m.theme, m.pass.View())
+	if m.passRequired {
+		passLine += m.theme.system.Render("  locked - enter password")
+	}
+
 	return []string{
 		m.hubField("Room", roomLine),
 		m.hubField("Nickname", restyleBareSpaces(m.theme, m.nick.View())),
-		m.hubField("Password", restyleBareSpaces(m.theme, m.pass.View())),
+		m.hubField("Password", passLine),
 	}
 }
 
@@ -835,7 +899,7 @@ func (m appModel) viewLocal(width int) []string {
 	switch {
 	case !m.lanDone:
 	case !m.hasLocalRows():
-		lines = append(lines, m.theme.system.Render("  none nearby - press h to host"))
+		lines = append(lines, m.theme.system.Render("  none nearby - press ctrl+h to host"))
 	default:
 		lines = append(lines, m.hubRoomLines(false, width)...)
 	}
@@ -881,7 +945,7 @@ func (m appModel) hubRoomLines(online bool, width int) []string {
 	return lines
 }
 
-// hubRowText splits a discover row into its left cell and right meta. Only
+// hubRowText splits a room row into its left cell and right meta. Only
 // ASCII reaches the view: nicks are validated printable ASCII upstream.
 func hubRowText(r hubRow) (string, string) {
 	host := r.host
@@ -893,19 +957,19 @@ func hubRowText(r hubRow) (string, string) {
 		host = host[:16]
 	}
 
-	if r.online {
-		left := r.room
-		if r.locked {
-			left += " [locked]"
-		}
+	left := r.room
+	if r.locked {
+		left += " [locked]"
+	}
 
+	if r.online {
 		return left, fmt.Sprintf("%d online - host %s", r.users, host)
 	}
 
-	return r.room, fmt.Sprintf("host %s - %s:%d", host, r.addr, r.port)
+	return left, fmt.Sprintf("host %s - %s:%d", host, r.addr, r.port)
 }
 
-// hubRowLine renders one discover row with right-aligned meta. The selected
+// hubRowLine renders one room row with right-aligned meta. The selected
 // row is a full-width bar with unstyled inner content, so no reset can cut
 // the bar's background short.
 func (m appModel) hubRowLine(left, meta string, selected bool, width int) string {
@@ -926,7 +990,7 @@ func (m appModel) hubRowLine(left, meta string, selected bool, width int) string
 }
 
 func (m appModel) viewFooter() string {
-	return m.theme.system.Render("enter join - tab focus - h host - ctrl+r rescan - esc quit")
+	return m.theme.system.Render("enter join - tab focus - ctrl+h host - ctrl+r rescan - ctrl+t theme")
 }
 
 // firstLine keeps multi-line fetch errors to one hub status line.
