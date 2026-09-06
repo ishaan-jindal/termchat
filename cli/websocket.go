@@ -74,6 +74,116 @@ func armReadDeadline(conn *websocket.Conn) {
 	_ = conn.SetReadDeadline(time.Now().Add(reconnectPongWait))
 }
 
+// connectWithRetry dials the server, tolerating transient flakes such as
+// a VPN mid-handshake, before giving up with the wrapped dial error.
+func connectWithRetry(serverURL string) (*Connection, error) {
+	backoff := time.Second
+
+	var conn *Connection
+	var err error
+
+	for attempt := 0; attempt < 3; attempt++ {
+		conn, err = connectWebSocket(serverURL)
+		if err == nil {
+			return conn, nil
+		}
+
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+
+	return nil, err
+}
+
+// joinedMsg carries the live connection into the chat screen. firstMsg holds
+// the join reply (history replay) for the chat model to consume.
+type joinedMsg struct{ conn *Connection }
+
+// joinPasswordMsg means the room is locked; the hub asks for the password.
+type joinPasswordMsg struct{}
+
+// joinErrorMsg ends the join attempt with a message for the hub status line.
+type joinErrorMsg struct{ err error }
+
+// joinOnce sends join (plus color) on a socket with a running writePump and
+// returns the first server frame: history on success, an error frame for
+// rejected joins. The caller owns teardown on failure.
+func joinOnce(conn *Connection, room, nick, password, color string) (Message, error) {
+	conn.Send <- Message{
+		Type:     "join",
+		Nick:     nick,
+		Room:     room,
+		Password: password,
+	}
+
+	if color != "" {
+		conn.Send <- Message{
+			Type:  "color",
+			Color: color,
+		}
+	}
+
+	var first Message
+
+	err := conn.conn.ReadJSON(&first)
+	if err != nil {
+		return Message{}, err
+	}
+
+	return first, nil
+}
+
+// dropJoin tears down a connection whose join failed; it owns both the
+// writePump signal and the socket.
+func dropJoin(conn *Connection) {
+	close(conn.done)
+	conn.conn.Close()
+}
+
+// joinCmd dials with retry, joins, and classifies the first server frame. A
+// locked room yields joinPasswordMsg so the hub can ask for the password;
+// every other rejection ends in joinErrorMsg.
+func joinCmd(serverURL, room, nick, password, color string) tea.Cmd {
+	return func() tea.Msg {
+		conn, err := connectWithRetry(serverURL)
+		if err != nil {
+			return joinErrorMsg{err: err}
+		}
+
+		go writePump(conn)
+
+		first, err := joinOnce(conn, room, nick, password, color)
+		if err != nil {
+			dropJoin(conn)
+
+			return joinErrorMsg{err: err}
+		}
+
+		if first.Type == "error" {
+			dropJoin(conn)
+
+			if first.Text == "invalid_password" {
+				return joinPasswordMsg{}
+			}
+
+			if first.Text == "invalid_nick" {
+				return joinErrorMsg{err: errors.New("nickname rejected by server")}
+			}
+
+			if first.Text == "" {
+				return joinErrorMsg{err: errors.New("join rejected by server")}
+			}
+
+			return joinErrorMsg{err: errors.New(first.Text)}
+		}
+
+		conn.firstMsg = &first
+		conn.password = password
+
+		return joinedMsg{conn: conn}
+	}
+}
+
 // writePump is the sole goroutine that writes to the WebSocket connection.
 // It ensures gorilla/websocket's contract of a single concurrent writer is maintained.
 // writePump never closes conn.done; main() owns the done lifecycle.

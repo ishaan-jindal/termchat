@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,8 @@ type discoverOptions struct {
 	Base   string
 }
 
+// runDiscover prints the plain table output. The interactive TUI calls the
+// fetchers directly; main routes here only when stdout is not a terminal.
 func runDiscover(opts discoverOptions) {
 	showOnline := opts.Online || (!opts.Online && !opts.Local)
 	showLocal := opts.Local || (!opts.Online && !opts.Local)
@@ -68,33 +71,11 @@ func discoverOnline(apiURL string) {
 	fmt.Println("          ONLINE ROOMS")
 	fmt.Println("========================================")
 
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	resp, err := client.Get(apiURL + "/discover")
+	rooms, err := fetchOnlineRooms(apiURL)
 	if err != nil {
-		fmt.Println("  Could not reach server:", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK ||
-		!strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
-		fmt.Println("  Server does not support discovery yet.")
-		fmt.Println("  Deploy the latest server to enable online room discovery.")
-		return
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("  Error reading response:", err)
-		return
-	}
-
-	var rooms []shared.RoomInfo
-
-	err = json.Unmarshal(body, &rooms)
-	if err != nil {
-		fmt.Println("  Error parsing response:", err)
+		for _, line := range strings.Split(err.Error(), "\n") {
+			fmt.Println("  " + line)
+		}
 		return
 	}
 
@@ -103,6 +84,42 @@ func discoverOnline(apiURL string) {
 		return
 	}
 
+	printOnlineRooms(rooms)
+}
+
+// fetchOnlineRooms queries the server's /discover endpoint. The hub screen
+// wraps it in a tea.Cmd so the table never blocks the TUI.
+func fetchOnlineRooms(apiURL string) ([]shared.RoomInfo, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(apiURL + "/discover")
+	if err != nil {
+		return nil, fmt.Errorf("Could not reach server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK ||
+		!strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+		return nil, errors.New("Server does not support discovery yet.\n" +
+			"Deploy the latest server to enable online room discovery.")
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading response: %w", err)
+	}
+
+	var rooms []shared.RoomInfo
+
+	err = json.Unmarshal(body, &rooms)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing response: %w", err)
+	}
+
+	return rooms, nil
+}
+
+func printOnlineRooms(rooms []shared.RoomInfo) {
 	fmt.Println()
 	fmt.Printf("  %-8s %-10s %-8s %s\n", "ROOM", "HOST", "USERS", "STATUS")
 	fmt.Printf("  %-8s %-10s %-8s %s\n",
@@ -164,6 +181,10 @@ func discoverLAN() {
 		return
 	}
 
+	printLANRooms(beacons)
+}
+
+func printLANRooms(beacons []lanBeacon) {
 	fmt.Println()
 	fmt.Printf("  %-8s %-10s %-18s %s\n", "ROOM", "HOST", "ADDRESS", "PORT")
 	fmt.Printf("  %-8s %-10s %-18s %s\n",
@@ -191,7 +212,6 @@ func discoverLAN() {
 func listenForBeacons(timeout time.Duration) []lanBeacon {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: shared.DiscoveryPort})
 	if err != nil {
-		fmt.Println("  Error listening for LAN beacons:", err)
 		return nil
 	}
 	defer conn.Close()

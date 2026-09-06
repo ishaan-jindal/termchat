@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -68,7 +67,7 @@ func main() {
 		return
 	}
 
-	if opts.DiscoverMode {
+	if opts.DiscoverMode && !stdoutIsTTY() {
 		runDiscover(discoverOptions{
 			Online: opts.OnlineOnly,
 			Local:  opts.LocalOnly,
@@ -78,77 +77,23 @@ func main() {
 	}
 
 	room := opts.Room
-	var localServerErrs <-chan error
+	fresh := false
+
 	if opts.HostMode {
 		room = prepareHostRoom(room)
-		localServerErrs, err = startLocalServer(opts.Port, opts.Password)
-		if err != nil {
-			log.Fatal(err)
+	} else {
+		room = shared.NormalizeRoomCode(room)
+		if room != "" && !shared.IsValidRoomCode(room) {
+			log.Fatalf("invalid room code %q", room)
 		}
-	} else if room == "" {
-		room = shared.GenerateRoomCode()
-		fmt.Println("Created Room:", room)
-	}
 
-	room = shared.NormalizeRoomCode(room)
-	if !shared.IsValidRoomCode(room) {
-		log.Fatalf("invalid room code %q", room)
+		if room == "" && !opts.DiscoverMode {
+			room = shared.GenerateRoomCode()
+			fresh = true
+		}
 	}
 
 	cfg := loadConfig()
-	reader := getInputReader()
-
-	nick := promptNickname(reader, os.Stdout, cfg.Nick)
-
-	cfg.Nick = nick
-	saveConfig(cfg)
-
-	serverURL := websocketURL(opts)
-	var conn *Connection
-
-	if opts.HostMode {
-		conn, err = connectLocalWebSocket(serverURL, localServerErrs)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Start writePump goroutine to serialize WebSocket writes
-		go writePump(conn)
-
-		// Send join message with password
-		conn.Send <- Message{
-			Type:     "join",
-			Nick:     nick,
-			Room:     room,
-			Password: opts.Password,
-		}
-	} else {
-		conn, err = connectWithRetry(serverURL)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		go writePump(conn)
-
-		// Check for password rejection before starting the TUI. joinRoom
-		// prompts on in when the room is locked, retries with the entered
-		// password, and stores the first message for the TUI to consume.
-		conn, err = joinRoom(conn, serverURL, room, nick, opts.Password, reader, os.Stdout)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if cfg.Color != "" {
-		conn.Send <- Message{
-			Type:  "color",
-			Color: cfg.Color,
-		}
-	}
-
-	if opts.HostMode {
-		startLANBroadcaster(room, opts.Port, nick)
-	}
 
 	themeName := opts.Theme
 	if themeName == "" {
@@ -167,19 +112,23 @@ func main() {
 		cfg.Theme = opts.Theme
 		saveConfig(cfg)
 	}
-	model := NewModel(conn, nick, room, theme)
-	model.VoiceDevice = cfg.VoiceDevice
-	model.serverURL = serverURL
-	model.color = cfg.Color
 
-	if opts.HostMode {
-		model.IsHost = true
-		model.HostIP = primaryLANIP()
-		model.HostPort = opts.Port
-	}
+	app := newAppModel(hubOptions{
+		room:       room,
+		fresh:      fresh,
+		password:   opts.Password,
+		serverURL:  websocketURL(opts),
+		base:       discoverBaseURL(opts),
+		hostMode:   opts.HostMode,
+		port:       opts.Port,
+		showOnline: !opts.LocalOnly,
+		showLocal:  !opts.OnlineOnly,
+		cfg:        cfg,
+		theme:      theme,
+	})
 
 	p := tea.NewProgram(
-		model,
+		app,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
@@ -189,14 +138,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// The model may have swapped connections during reconnect, so tear
-	// down the live one rather than the original.
-	live := conn
-	if fm, ok := finalModel.(Model); ok && fm.conn != nil {
-		live = fm.conn
+	// The shell tracks the live connection across chat reconnects.
+	var live *Connection
+
+	if fm, ok := finalModel.(appModel); ok {
+		live = fm.liveConn()
 	}
 
-	// Close writePump by closing the done channel
+	if live == nil {
+		return
+	}
+
 	select {
 	case <-live.done:
 		// writePump already stopped
@@ -207,25 +159,15 @@ func main() {
 	live.conn.Close()
 }
 
-// connectWithRetry dials the server, tolerating transient flakes such as
-// a VPN mid-handshake, before giving up with the wrapped dial error.
-func connectWithRetry(serverURL string) (*Connection, error) {
-	backoff := time.Second
-
-	var conn *Connection
-	var err error
-
-	for attempt := 0; attempt < 3; attempt++ {
-		conn, err = connectWebSocket(serverURL)
-		if err == nil {
-			return conn, nil
-		}
-
-		time.Sleep(backoff)
-		backoff *= 2
+// stdoutIsTTY reports whether plain table output would be seen by a human.
+// Piped discover output keeps the legacy printed tables for scripts.
+func stdoutIsTTY() bool {
+	st, err := os.Stdout.Stat()
+	if err != nil {
+		return false
 	}
 
-	return nil, err
+	return st.Mode()&os.ModeCharDevice != 0
 }
 
 func parseArgs(args []string) (cliOptions, error) {
@@ -442,81 +384,6 @@ func startLocalServer(port int, password string) (<-chan error, error) {
 	}
 }
 
-// joinRoom sends the join frame and reads the first response. When the room
-// is password-protected and the supplied password is wrong, it prompts on in
-// for a password, reconnects, and retries once. The first message is stored
-// on the returned connection for the TUI to consume. It returns the (possibly
-// reconnected) connection, or an error when the join failed outright.
-func joinRoom(conn *Connection, serverURL, room, nick, password string, in io.Reader, out io.Writer) (*Connection, error) {
-	effective := password
-
-	conn.Send <- Message{
-		Type:     "join",
-		Nick:     nick,
-		Room:     room,
-		Password: password,
-	}
-
-	var firstMsg Message
-
-	if err := conn.conn.ReadJSON(&firstMsg); err != nil {
-		return nil, err
-	}
-
-	if firstMsg.Type == "error" && firstMsg.Text == "invalid_nick" {
-		conn.conn.Close()
-
-		return nil, errors.New("nickname rejected by server")
-	}
-
-	if firstMsg.Type != "error" || firstMsg.Text != "invalid_password" {
-		conn.firstMsg = &firstMsg
-		conn.password = effective
-
-		return conn, nil
-	}
-
-	fmt.Fprint(out, "Room requires a password: ")
-	pass, _ := bufio.NewReader(in).ReadString('\n')
-	pass = strings.TrimSpace(pass)
-	effective = pass
-
-	// Signal writePump to stop
-	close(conn.done)
-	conn.conn.Close()
-
-	// Reconnect with the password
-	conn, err := connectWebSocket(serverURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Restart writePump
-	go writePump(conn)
-
-	conn.Send <- Message{
-		Type:     "join",
-		Nick:     nick,
-		Room:     room,
-		Password: pass,
-	}
-
-	if err := conn.conn.ReadJSON(&firstMsg); err != nil {
-		return nil, err
-	}
-
-	if firstMsg.Type == "error" && firstMsg.Text == "invalid_password" {
-		conn.conn.Close()
-
-		return nil, errors.New("wrong password")
-	}
-
-	conn.firstMsg = &firstMsg
-	conn.password = effective
-
-	return conn, nil
-}
-
 func websocketURL(opts cliOptions) string {
 	if opts.HostMode {
 		return fmt.Sprintf("ws://localhost:%d/ws", opts.Port)
@@ -531,36 +398,4 @@ func websocketURL(opts cliOptions) string {
 	}
 
 	return DefaultWS
-}
-
-func connectLocalWebSocket(serverURL string, serverErrs <-chan error) (*Connection, error) {
-	deadline := time.Now().Add(3 * time.Second)
-
-	for {
-		select {
-		case err := <-serverErrs:
-			return nil, err
-		default:
-		}
-
-		conn, err := connectWebSocket(serverURL)
-		if err == nil {
-			return conn, nil
-		}
-
-		if time.Now().After(deadline) {
-			return nil, err
-		}
-
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func getInputReader() *bufio.Reader {
-	tty, err := os.Open("/dev/tty")
-	if err == nil {
-		return bufio.NewReader(tty)
-	}
-
-	return bufio.NewReader(os.Stdin)
 }

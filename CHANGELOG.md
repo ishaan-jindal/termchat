@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Hub screen: every launch now opens one alt-screen TUI with the join form
+  (room, nickname, password) above the online and LAN room lists. Enter
+  joins, Tab moves between the form and the lists, `r` rescans, `h` hosts
+  the room on the LAN.
+- `termchat discover` shows the room lists in the hub with direct
+  Enter-to-join; piped output keeps the plain tables for scripts.
+- Locked rooms ask for the password in the hub instead of a terminal
+  prompt, and fresh rooms show a share line on entry.
+
+### Removed
+
+- The pre-TUI terminal prompts (nickname, room password, `Created Room:`)
+  are gone; the hub covers them.
+
 ## [cli-v2.3.0] - 2026-09-05
 
 ### Added

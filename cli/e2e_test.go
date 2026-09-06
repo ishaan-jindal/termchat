@@ -89,10 +89,17 @@ func e2eConnect(t *testing.T, url, room, nick, password string) *e2eClient {
 
 	go writePump(conn)
 
-	conn, err = joinRoom(conn, url, room, nick, password, strings.NewReader(""), io.Discard)
+	first, err := joinOnce(conn, room, nick, password, "")
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if first.Type == "error" {
+		t.Fatalf("join rejected: %q", first.Text)
+	}
+
+	conn.firstMsg = &first
+	conn.password = password
 
 	return &e2eClient{t: t, conn: conn}
 }
