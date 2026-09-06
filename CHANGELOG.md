@@ -8,17 +8,14 @@
   with the join form (room, nickname, password) above the online and LAN
   room lists. Enter joins, Tab moves between the form and the lists,
   `Ctrl+R` rescans, `Ctrl+H` hosts the room on the LAN, and `Ctrl+T` cycles
-  the color theme.
-- Locked rooms prompt for the password inline on the Password field, in
-  the hub instead of a terminal prompt; LAN hosts now advertise locked
-  rooms, which the LAN list marks with `[locked]`.
+  the color theme. (by @ishaan-jindal)
 
 ### Removed
 
 - The `discover` command and its `--online` / `--local` flags are gone; the
-  hub always lists online and LAN rooms below the join form.
+  hub always lists online and LAN rooms below the join form. (by @ishaan-jindal)
 - The pre-TUI terminal prompts (nickname, room password, `Created Room:`)
-  are gone; the hub covers them.
+  are gone; the hub covers them. (by @ishaan-jindal)
 
 ## [cli-v2.3.0] - 2026-09-05
 
