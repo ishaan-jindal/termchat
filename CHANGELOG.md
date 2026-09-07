@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Hub screen: every launch now opens one alt-screen TUI, centered in a box,
+  with the join form (room, nickname, password) above the online and LAN
+  room lists. Enter joins, Tab moves between the form and the lists,
+  `Ctrl+R` rescans, `Ctrl+H` hosts the room on the LAN, and `Ctrl+T` cycles
+  the color theme. (by @ishaan-jindal)
+
+### Removed
+
+- The `discover` command and its `--online` / `--local` flags are gone; the
+  hub always lists online and LAN rooms below the join form. (by @ishaan-jindal)
+- The pre-TUI terminal prompts (nickname, room password, `Created Room:`)
+  are gone; the hub covers them. (by @ishaan-jindal)
+
 ## [cli-v2.3.0] - 2026-09-05
 
 ### Added

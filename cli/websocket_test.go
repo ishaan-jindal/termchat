@@ -145,9 +145,13 @@ func TestReconnectRecoversAfterRestart(t *testing.T) {
 
 	go writePump(conn)
 
-	conn, err = joinRoom(conn, url, "RCVR", "alice", "", strings.NewReader(""), io.Discard)
+	first, err := joinOnce(conn, "RCVR", "alice", "", "")
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if first.Type != "history" {
+		t.Fatalf("first message = %+v, want history", first)
 	}
 
 	close(conn.done)
@@ -272,17 +276,17 @@ func TestJoinRoomFlow(t *testing.T) {
 
 		go writePump(conn)
 
-		conn, err = joinRoom(conn, url, "FLOW", "alice", "", strings.NewReader(""), io.Discard)
+		first, err := joinOnce(conn, "FLOW", "alice", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if conn.firstMsg == nil || conn.firstMsg.Type != "history" {
-			t.Fatalf("first message = %+v, want history", conn.firstMsg)
+		if first.Type != "history" {
+			t.Fatalf("first message = %+v, want history", first)
 		}
 	})
 
-	t.Run("prompted for password", func(t *testing.T) {
+	t.Run("locked room needs password", func(t *testing.T) {
 		// Lock the room first. The host must stay connected until the guest
 		// joined: an empty locked room is deleted and the password lost.
 		host, err := connectWebSocket(url)
@@ -292,9 +296,13 @@ func TestJoinRoomFlow(t *testing.T) {
 
 		go writePump(host)
 
-		host, err = joinRoom(host, url, "FLOW", "host", "", strings.NewReader(""), io.Discard)
+		first, err := joinOnce(host, "FLOW", "host", "", "")
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		if first.Type != "history" {
+			t.Fatalf("host first message = %+v, want history", first)
 		}
 
 		host.Send <- Message{Type: "set_password", Password: "secret"}
@@ -304,7 +312,7 @@ func TestJoinRoomFlow(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Joining without a password prompts (we feed "secret") and succeeds.
+		// Joining without a password is rejected with an error frame.
 		conn, err := connectWebSocket(url)
 		if err != nil {
 			t.Fatal(err)
@@ -313,20 +321,34 @@ func TestJoinRoomFlow(t *testing.T) {
 
 		go writePump(conn)
 
-		prompt := ""
-
-		conn, err = joinRoom(conn, url, "FLOW", "bob", "", strings.NewReader("secret\n"),
-			&writerFunc{fn: func(p []byte) (int, error) { prompt += string(p); return len(p), nil }})
+		reply, err := joinOnce(conn, "FLOW", "bob", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if !strings.Contains(prompt, "Room requires a password") {
-			t.Errorf("prompt = %q, want password prompt", prompt)
+		if reply.Type != "error" || reply.Text != "invalid_password" {
+			t.Fatalf("reply = %+v, want invalid_password", reply)
 		}
 
-		if conn.firstMsg == nil || conn.firstMsg.Type != "history" {
-			t.Fatalf("first message after retry = %+v, want history", conn.firstMsg)
+		close(conn.done)
+		conn.conn.Close()
+
+		// With the password, the join succeeds.
+		authed, err := connectWebSocket(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer authed.conn.Close()
+
+		go writePump(authed)
+
+		first, err = joinOnce(authed, "FLOW", "bob", "secret", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if first.Type != "history" {
+			t.Fatalf("first message after password = %+v, want history", first)
 		}
 
 		// Host can leave now; bob keeps the room alive.
@@ -334,7 +356,28 @@ func TestJoinRoomFlow(t *testing.T) {
 		host.conn.Close()
 	})
 
-	t.Run("wrong password twice", func(t *testing.T) {
+	t.Run("wrong password rejected", func(t *testing.T) {
+		host, err := connectWebSocket(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			close(host.done)
+			host.conn.Close()
+		}()
+
+		go writePump(host)
+
+		if _, err := joinOnce(host, "FLOW", "host", "", ""); err != nil {
+			t.Fatal(err)
+		}
+
+		host.Send <- Message{Type: "set_password", Password: "secret"}
+
+		if err := waitForLocked(addr, "FLOW"); err != nil {
+			t.Fatal(err)
+		}
+
 		conn, err := connectWebSocket(url)
 		if err != nil {
 			t.Fatal(err)
@@ -343,9 +386,13 @@ func TestJoinRoomFlow(t *testing.T) {
 
 		go writePump(conn)
 
-		_, err = joinRoom(conn, url, "FLOW", "eve", "", strings.NewReader("wrong\n"), io.Discard)
-		if err == nil || !strings.Contains(err.Error(), "wrong password") {
-			t.Fatalf("err = %v, want wrong password", err)
+		reply, err := joinOnce(conn, "FLOW", "eve", "wrong", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if reply.Type != "error" || reply.Text != "invalid_password" {
+			t.Fatalf("reply = %+v, want invalid_password", reply)
 		}
 	})
 
@@ -358,19 +405,11 @@ func TestJoinRoomFlow(t *testing.T) {
 
 		go writePump(conn)
 
-		_, err = joinRoom(conn, url, "BAD", "x", "", strings.NewReader(""), io.Discard)
-		if err == nil {
+		// The server closes the socket without a frame for bad room codes.
+		if _, err := joinOnce(conn, "BAD", "x", "", ""); err == nil {
 			t.Fatal("expected error for invalid room")
 		}
 	})
-}
-
-type writerFunc struct {
-	fn func(p []byte) (int, error)
-}
-
-func (w *writerFunc) Write(p []byte) (int, error) {
-	return w.fn(p)
 }
 
 func TestServerStop(t *testing.T) {

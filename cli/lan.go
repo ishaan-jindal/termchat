@@ -119,11 +119,11 @@ func primaryLANIP() string {
 }
 
 // startLANBroadcaster periodically announces this host on every eligible
-// interface so that `termchat discover` on the same link can find it.
-func startLANBroadcaster(room string, port int, hostNick string) {
+// interface so that the hub's LAN ROOMS list on the same link can find it.
+func startLANBroadcaster(room string, port int, hostNick string, locked bool) {
 	go func() {
 		for {
-			sendBeacons(lanInterfaces(), room, port, hostNick)
+			sendBeacons(lanInterfaces(), room, port, hostNick, locked)
 			time.Sleep(1 * time.Second)
 		}
 	}()
@@ -131,7 +131,7 @@ func startLANBroadcaster(room string, port int, hostNick string) {
 
 // sendBeacons sends one beacon per interface via both multicast and broadcast.
 // Failures are skipped; the next tick re-enumerates and retries.
-func sendBeacons(lis []lanInterface, room string, port int, hostNick string) {
+func sendBeacons(lis []lanInterface, room string, port int, hostNick string, locked bool) {
 	lis = orderedLAN(lis, defaultRouteIface())
 
 	group := &net.UDPAddr{
@@ -146,10 +146,11 @@ func sendBeacons(lis []lanInterface, room string, port int, hostNick string) {
 
 	for _, li := range lis {
 		beacon := lanBeacon{
-			Room: room,
-			Port: port,
-			Host: hostNick,
-			IP:   li.ip.String(),
+			Room:   room,
+			Port:   port,
+			Host:   hostNick,
+			IP:     li.ip.String(),
+			Locked: locked,
 		}
 
 		payload, err := json.Marshal(beacon)

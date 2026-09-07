@@ -70,7 +70,7 @@ func TestParseHelp(t *testing.T) {
 }
 
 func TestDiscoverBaseURL(t *testing.T) {
-	opts, err := parseArgs([]string{"discover"})
+	opts, err := parseArgs(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestDiscoverBaseURL(t *testing.T) {
 		t.Fatalf("default base = %q", got)
 	}
 
-	opts, err = parseArgs([]string{"discover", "--server", "ws://example.test/ws"})
+	opts, err = parseArgs([]string{"--server", "ws://example.test/ws"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestDiscoverBaseURL(t *testing.T) {
 		t.Fatalf("server-derived base = %q", got)
 	}
 
-	opts, err = parseArgs([]string{"discover", "--server", "wss://example.test/ws"})
+	opts, err = parseArgs([]string{"--server", "wss://example.test/ws"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestDiscoverBaseURL(t *testing.T) {
 		t.Fatalf("wss-derived base = %q", got)
 	}
 
-	opts, err = parseArgs([]string{"discover", "--host", "192.168.1.42", "--port", "9000"})
+	opts, err = parseArgs([]string{"--host", "192.168.1.42", "--port", "9000"})
 	if err != nil {
 		t.Fatal(err)
 	}

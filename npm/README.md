@@ -22,8 +22,10 @@ x64/arm64).
 termchat          # create a new room
 termchat FROG     # join a room
 termchat host     # host a LAN room
-termchat discover # list online and LAN rooms
 ```
+
+The hub screen lists online and LAN rooms below the join form; `Enter` joins
+the selected room.
 
 ## Links
 

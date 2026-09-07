@@ -7,9 +7,6 @@ termchat \- minimal anonymous terminal chatrooms
 .br
 .B termchat host
 [\fIROOM\fR] [\fIOPTIONS\fR]
-.br
-.B termchat discover
-[\fIOPTIONS\fR]
 .SH DESCRIPTION
 .B termchat
 is a lightweight terminal\-native chat client.
@@ -22,8 +19,8 @@ If no \fIROOM\fR code is given, a new room is created automatically.
 .PP
 LAN host mode starts a local WebSocket server in the same process and opens
 the normal terminal UI. Other users join directly by IP address. A UDP
-multicast beacon is broadcast every second, enabling LAN room discovery via
-\fBtermchat discover \-\-local\fR.
+multicast beacon is broadcast every second; the hub's LAN ROOMS list picks it
+up, so LAN hosts are discoverable from the room list.
 .PP
 The first user to join a room becomes the host. The host is shown with a
 \fB[host]\fR tag in the user list sidebar. When the host disconnects, the
@@ -46,20 +43,14 @@ This option takes priority over \fB\-\-host\fR and \fB\-\-port\fR.
 .TP
 .BR \-\-password " " \fIPASS\fR
 Room password for hosting or joining. If joining a locked room without this
-flag, the CLI prompts interactively.
+flag, the hub asks for the password in the join form.
 .TP
 .BR \-\-theme " " \fINAME\fR
 Color theme for the TUI. The default \fBsystem\fR keeps your terminal's own
 colors and adapts only the accents to light or dark backgrounds; named
 themes force their own palette over the entire window. Run \fB/theme\fR
-inside termchat for the current list of built-ins. The choice is saved to
-the config file.
-.TP
-.BR \-\-online
-Discover filter: show online rooms only.
-.TP
-.BR \-\-local
-Discover filter: show LAN rooms only.
+inside termchat for the current list of built-ins, or press Ctrl+T on the
+hub to cycle themes. The choice is saved to the config file.
 .TP
 .BR \-\-version
 Show version and exit.
@@ -130,6 +121,30 @@ Show whether the voice session is on or off.
 .B /quit
 Exit the room.
 .SH KEYBINDINGS
+The hub (join screen) keys:
+.TP
+.B Enter
+Join the room in the form, or the selected room in the list.
+.TP
+.B Tab / Shift+Tab
+Move between the room, nickname, password fields and the room list.
+.TP
+.B Up/Down
+Move the room list selection; otherwise move between fields.
+.TP
+.B Ctrl+R
+Rescan the online and LAN room lists.
+.TP
+.B Ctrl+H
+Host the room in the form on the LAN.
+.TP
+.B Ctrl+T
+Cycle the color theme.
+.TP
+.B Esc / Ctrl+C
+Quit.
+.PP
+In the chat, the keys are:
 .TP
 .B Enter
 Send message.
@@ -231,24 +246,6 @@ Join a room with a password:
 .PP
 .RS
 .B termchat FROG \-\-password secret
-.RE
-.PP
-Discover all rooms (online and LAN):
-.PP
-.RS
-.B termchat discover
-.RE
-.PP
-Discover online rooms only:
-.PP
-.RS
-.B termchat discover \-\-online
-.RE
-.PP
-Discover LAN rooms only:
-.PP
-.RS
-.B termchat discover \-\-local
 .RE
 .SH BUGS
 Report bugs at \fIhttps://github.com/ishaan\-jindal/termchat/issues\fR.
