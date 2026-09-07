@@ -121,10 +121,11 @@ Show whether the voice session is on or off.
 .B /video on
 Join the room's video session. Requires ffmpeg (webcam capture) on the PATH;
 the camera is enabled by default when the session starts, and other users see
-a [CAM] marker next to your nickname while you transmit. Incoming streams
-render as ANSI art in a sidebar video column above the user list; press
-Ctrl+F for a fullscreen view. On narrow terminals without a sidebar the
-streams render in an embedded panel instead. Video capture is currently
+a [CAM] marker next to your nickname while you transmit. Every frame is
+pixelated before encoding so only anonymous video leaves your machine; there
+is no opt-out. Incoming streams render as ANSI art in a sidebar video column
+above the user list. On narrow terminals without a sidebar the streams render
+in an embedded panel instead. Video capture is currently
 Linux-only (v4l2); other platforms join in watch mode.
 .TP
 .B /video off
@@ -179,10 +180,6 @@ Toggle microphone transmit while in a voice session (push-to-talk).
 .B Ctrl+V
 Toggle webcam transmit while in a video session.
 .TP
-.B Ctrl+F
-Toggle the sidebar video column to fullscreen and back; while fullscreen,
-Tab switches color/ASCII render mode and +/- change the pixelate level.
-.TP
 .B Ctrl+C
 Quit.
 .SH VOICE CHAT
@@ -201,9 +198,11 @@ device name. Headphones are recommended to avoid echo, since terminals have
 no echo cancellation.
 .SH VIDEO CHAT
 Video rides the same binary media WebSocket as voice, authenticated with the
-same single-use tokens. The webcam is captured with ffmpeg as baseline JPEG
-frames (320x240, ~10 fps) and relayed to room peers, who decode and render
-them as ANSI art in an embedded panel or a fullscreen view. Video capture is
+same single-use tokens. The webcam is captured with ffmpeg, pixelated to
+4x4 blocks before encoding, and relayed to room peers as baseline JPEG frames
+(320x240, ~10 fps), who decode and render them as ANSI art in the sidebar
+video column or an embedded panel. Anonymity is enforced on the wire: no
+full-detail frame ever leaves the sender. Video capture is
 Linux-only (v4l2, default /dev/video0); set \fIcam_device\fR in
 ~/.termchat/config.json to override the camera path. The camera transmits
 only while armed with Ctrl+V; when disabled the process is killed so the

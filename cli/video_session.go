@@ -37,9 +37,6 @@ type VideoSession struct {
 	done     chan struct{}
 	stopOnce sync.Once
 	txSince  time.Time
-	mode     VideoMode
-	full     bool
-	pixelate int
 
 	sentFrames atomic.Uint64
 	recvFrames atomic.Uint64
@@ -57,7 +54,6 @@ type VideoSession struct {
 func (m *Model) startVideoSession() tea.Cmd {
 	vs := &VideoSession{
 		conn:  m.media,
-		mode:  VideoModeColor,
 		done:  make(chan struct{}),
 		peers: map[uint32]*videoPeerFrame{},
 	}
@@ -74,7 +70,7 @@ func (m *Model) startVideoSession() tea.Cmd {
 	}
 
 	startCameraAndPump(vs, cam)
-	appendUI(m, "video on - ctrl+v toggles camera, ctrl+f fullscreen")
+	appendUI(m, "video on - ctrl+v toggles camera")
 
 	return tea.Batch(waitForCamStop(cam), videoTicker())
 }
@@ -193,15 +189,32 @@ func (s *VideoSession) prune() {
 	}
 }
 
-// pumpCamera forwards captured JPEG frames to the media connection and
-// loops them back as the local preview until the process exits.
+// pumpCamera pixelates captured frames to the anonymity floor, encodes and
+// forwards them to the media connection, and loops them back as the local
+// preview until the process exits. Full-detail pixels never leave the sender.
 func pumpCamera(s *VideoSession, cam *camCapture) {
 	br := bufio.NewReader(cam.stdout)
 
 	for {
-		jpeg, err := nextJPEG(br)
+		raw, err := nextJPEG(br)
 		if err != nil {
 			return
+		}
+
+		if len(raw) > shared.VideoMaxFrameBytes {
+			continue
+		}
+
+		pix, w, h, err := decodeVideoFrame(raw)
+		if err != nil {
+			continue
+		}
+
+		pix = pixelateBuffer(pix, w, h, shared.VideoPixelDepth)
+
+		jpeg, err := encodeVideoFrame(pix, w, h)
+		if err != nil {
+			continue
 		}
 
 		if len(jpeg) > shared.VideoMaxFrameBytes {
@@ -212,11 +225,6 @@ func pumpCamera(s *VideoSession, cam *camCapture) {
 		s.conn.trySend(frame)
 		s.sentFrames.Add(1)
 		s.lastSent.Store(time.Now().UnixMilli())
-
-		pix, w, h, err := decodeVideoFrame(jpeg)
-		if err != nil {
-			continue
-		}
 
 		s.mu.Lock()
 		s.self = &videoPeerFrame{pix: pix, w: w, h: h, updated: time.Now()}
@@ -235,53 +243,6 @@ func waitForCamStop(cam *camCapture) tea.Cmd {
 
 		return videoCamStoppedMsg{cam: cam, tail: cam.tail.String()}
 	}
-}
-
-// updateVideoFullKey handles keys in the fullscreen video view; chat input
-// stays hidden so every other key is swallowed.
-func (m Model) updateVideoFullKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-
-	case "ctrl+t":
-		return m, toggleTalk(&m)
-
-	case "ctrl+v":
-		cmd := toggleVideo(&m)
-
-		pending := m.pendingCmd
-		m.pendingCmd = nil
-
-		return m, tea.Batch(cmd, pending)
-
-	case "ctrl+f", "esc":
-		m.video.full = false
-		resizeViewport(&m)
-
-		return m, nil
-
-	case "tab":
-		if m.video.mode == VideoModeColor {
-			m.video.mode = VideoModeASCII
-		} else {
-			m.video.mode = VideoModeColor
-		}
-
-		return m, nil
-
-	case "+", "=":
-		m.video.pixelate = clampVideoPixelate(m.video.pixelate + 1)
-
-		return m, nil
-
-	case "-", "_":
-		m.video.pixelate = clampVideoPixelate(m.video.pixelate - 1)
-
-		return m, nil
-	}
-
-	return m, nil
 }
 
 type videoTickMsg struct{}

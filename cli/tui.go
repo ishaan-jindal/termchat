@@ -186,10 +186,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
-		if m.video != nil && m.video.full {
-			return m.updateVideoFullKey(msg)
-		}
-
 		switch msg.String() {
 
 		case "ctrl+c":
@@ -207,14 +203,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingCmd = nil
 
 			return m, tea.Batch(cmd, pending)
-
-		case "ctrl+f":
-			if m.video != nil {
-				m.video.full = !m.video.full
-				resizeViewport(&m)
-			}
-
-			return m, nil
 
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
@@ -614,10 +602,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	if m.video != nil && m.video.full {
-		return m.viewVideoFull()
-	}
-
 	scrollInfo := ""
 
 	if !m.viewport.AtTop() {
@@ -790,7 +774,7 @@ func (m Model) renderVideoPanel() string {
 	var lines []string
 
 	if len(tiles) > 0 {
-		lines = renderVideoTiles(tiles, inner, contentH, m.video.mode, 0)
+		lines = renderVideoTiles(tiles, inner, contentH)
 	} else {
 		lines = blankLines(inner, contentH)
 		lines[0] = tileCaption("starting camera...", inner)
@@ -800,53 +784,6 @@ func (m Model) renderVideoPanel() string {
 		Width(m.viewport.Width + 4).
 		Height(m.videoPanelHeight()).
 		Render(strings.Join(lines, "\n"))
-}
-
-// viewVideoFull renders the termcam-style fullscreen video view: a header,
-// the stream grid and a status bar.
-func (m Model) viewVideoFull() string {
-	width := max(m.width, 20)
-	gridH := max(m.height-2, 3)
-
-	tiles := m.activeVideoTiles()
-
-	var grid []string
-
-	if len(tiles) > 0 {
-		grid = renderVideoTiles(tiles, width, gridH, m.video.mode, m.video.pixelate)
-	} else {
-		grid = blankLines(width, gridH)
-		grid[gridH/2] = tileCaption("no video - waiting for peers...", width)
-	}
-
-	names := make([]string, 0, len(tiles))
-	for _, t := range tiles {
-		names = append(names, t.nick)
-	}
-
-	peers := strings.Join(names, ", ")
-	if peers == "" {
-		peers = "no peers"
-	}
-
-	header := m.theme.base.Width(width).Render(
-		fmt.Sprintf("VIDEO - Room %s - %s", m.room, peers))
-
-	status := m.theme.base.Width(width).Render(
-		fmt.Sprintf(" %s | Pixelate %d/%d | Tab=switch +/-=pixelate ctrl+f=chat ctrl+v=cam",
-			m.video.mode, m.video.pixelate, maxVideoPixelate))
-
-	ui := lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		strings.Join(grid, "\n"),
-		status,
-	)
-
-	return m.theme.base.
-		Width(width).
-		Height(max(m.height, 3)).
-		Render(ui)
 }
 
 type videoPeer struct {
@@ -965,7 +902,7 @@ func (m *Model) videoCamNicks() []string {
 // border, or zero when the panel stays hidden. The sidebar replaces the
 // bottom panel whenever it is visible.
 func (m *Model) videoPanelHeight() int {
-	if m.video == nil || m.video.full || m.height < 20 || m.viewport.Width < 20 {
+	if m.video == nil || m.height < 20 || m.viewport.Width < 20 {
 		return 0
 	}
 
@@ -1097,7 +1034,7 @@ func renderVideoSection(m Model, inner, rosterFloor int, roster []string) []stri
 			break
 		}
 
-		body := renderTile(tile, tileW, tileH, m.video.mode, 0)
+		body := renderTile(tile, tileW, tileH)
 		box := tileStyle.Width(tileW).Render(strings.Join(body, "\n"))
 		section = append(section, strings.Split(box, "\n")...)
 		shown++

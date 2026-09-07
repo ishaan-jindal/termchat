@@ -26,6 +26,11 @@ const (
 
 	// VideoMaxFrameBytes bounds one encoded frame on the wire.
 	VideoMaxFrameBytes = 128 * 1024
+
+	// VideoPixelDepth is the anonymity floor: senders block-average every
+	// frame to depth-by-depth pixel blocks before encoding, so the wire
+	// only ever carries pixelated video. There is no opt-out.
+	VideoPixelDepth = 4
 )
 
 const (

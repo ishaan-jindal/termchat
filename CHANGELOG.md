@@ -6,13 +6,14 @@
 
 - Camera video chat: `/video on` joins a video session and the webcam is
   streamed to room peers as baseline JPEG frames over the shared `/media`
-  socket. `Ctrl+V` toggles the camera, `Ctrl+F` toggles the sidebar video
-  column to a fullscreen termcam-style view (Tab switches color/ASCII mode,
-  +/- adjust pixelate), and `[CAM]` markers plus a `VIDEO [TX]` footer badge
-  with an on-video count show who is transmitting. Streams render as live
-  ANSI art in bordered sidebar tiles above the roster (embedded panel on
-  narrow terminals). Capture is Linux-only (v4l2); `cam_device` in
-  `~/.termchat/config.json` overrides the camera path. (by @ishaan-jindal)
+  socket. Every frame is pixelated to 4x4 blocks before encoding, so only
+  anonymous video leaves the sender; there is no opt-out and no fullscreen
+  view. `Ctrl+V` toggles the camera, and `[CAM]` markers plus a `VIDEO [TX]`
+  footer badge with an on-video count show who is transmitting. Streams
+  render as live ANSI art in bordered sidebar tiles above the roster
+  (embedded panel on narrow terminals). Capture is Linux-only (v4l2);
+  `cam_device` in `~/.termchat/config.json` overrides the camera path.
+  (by @ishaan-jindal)
 - Hub screen: every launch now opens one alt-screen TUI, centered in a box,
   with the join form (room, nickname, password) above the online and LAN
   room lists. Enter joins, Tab moves between the form and the lists,

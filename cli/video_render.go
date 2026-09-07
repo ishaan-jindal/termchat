@@ -4,44 +4,23 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/jpeg"
+	"image/color"
+	"image/jpeg"
 	"strconv"
 	"strings"
 )
 
-const (
-	videoHalfBlock = "▀"
-	videoASCIIGray = " .:-=+*#%@"
-)
+const videoHalfBlock = "▀"
 
-// VideoMode selects the ANSI render style for video tiles.
-type VideoMode int
-
-const (
-	VideoModeColor VideoMode = iota
-	VideoModeASCII
-)
-
-func (m VideoMode) String() string {
-	if m == VideoModeASCII {
-		return "ASCII"
-	}
-
-	return "COLOR"
-}
+// videoJPEGQuality balances frame size against block fidelity for the
+// transmit-side pixelated encode.
+const videoJPEGQuality = 75
 
 // maxVideoTiles caps how many streams one video panel shows at once.
 const maxVideoTiles = 4
 
 // sidebarTileVidH is the video line count inside each bordered sidebar tile.
 const sidebarTileVidH = 4
-
-// maxVideoPixelate bounds the fullscreen chunkiness slider.
-const maxVideoPixelate = 10
-
-func clampVideoPixelate(p int) int {
-	return min(max(p, 0), maxVideoPixelate)
-}
 
 // videoTile is one stream ready for the grid renderer.
 type videoTile struct {
@@ -80,9 +59,34 @@ func decodeVideoFrame(frame []byte) ([]byte, int, int, error) {
 	return pix, w, h, nil
 }
 
+// encodeVideoFrame encodes row-major RGB triples as one baseline JPEG.
+func encodeVideoFrame(pix []byte, w, h int) ([]byte, error) {
+	if w < 1 || h < 1 || len(pix) < w*h*3 {
+		return nil, fmt.Errorf("video frame has no pixels")
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 3
+			img.SetNRGBA(x, y, color.NRGBA{R: pix[i], G: pix[i+1], B: pix[i+2], A: 255})
+		}
+	}
+
+	var buf bytes.Buffer
+
+	err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: videoJPEGQuality})
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
 // renderVideoFrame scales RGB pixels to a cols by rows cell grid and renders
 // one ANSI string per row; two source pixel rows share one half-block cell.
-func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int, mode VideoMode) []string {
+func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int) []string {
 	if cols < 1 || rows < 1 || srcW < 1 || srcH < 1 {
 		return nil
 	}
@@ -92,10 +96,6 @@ func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int, mode VideoMode) []
 	}
 
 	scaled := scaleRGB(pix, srcW, srcH, cols, rows*2)
-
-	if mode == VideoModeASCII {
-		return renderASCIILines(scaled, cols, rows)
-	}
 
 	return renderColorLines(scaled, cols, rows)
 }
@@ -198,33 +198,6 @@ func renderColorLines(pix []byte, cols, rows int) []string {
 	return lines
 }
 
-func renderASCIILines(pix []byte, cols, rows int) []string {
-	lines := make([]string, 0, rows)
-
-	var b strings.Builder
-
-	for y := 0; y < rows; y++ {
-		b.Reset()
-		b.WriteString("\x1b[0m")
-
-		top := y * 2 * cols
-		bot := top + cols
-
-		for x := 0; x < cols; x++ {
-			ti := (top + x) * 3
-			bi := (bot + x) * 3
-			lum := (299*int(pix[ti]) + 587*int(pix[ti+1]) + 114*int(pix[ti+2]) +
-				299*int(pix[bi]) + 587*int(pix[bi+1]) + 114*int(pix[bi+2])) / 2000
-			idx := lum * len(videoASCIIGray) / 256
-			b.WriteByte(videoASCIIGray[idx])
-		}
-
-		lines = append(lines, b.String())
-	}
-
-	return lines
-}
-
 // layoutVideoGrid picks tile columns and rows for n streams.
 func layoutVideoGrid(n int) (tcols, trows int) {
 	switch {
@@ -267,7 +240,7 @@ func pixelateBuffer(pix []byte, w, h, depth int) []byte {
 // renderVideoTiles renders up to maxVideoTiles streams into a cols-wide,
 // rows-high block: one caption line plus video lines per tile, joined
 // horizontally and padded with blanks.
-func renderVideoTiles(tiles []videoTile, cols, rows int, mode VideoMode, pixelate int) []string {
+func renderVideoTiles(tiles []videoTile, cols, rows int) []string {
 	if cols < 1 || rows < 1 {
 		return nil
 	}
@@ -291,7 +264,7 @@ func renderVideoTiles(tiles []videoTile, cols, rows int, mode VideoMode, pixelat
 	tileLines := make([][]string, 0, len(tiles))
 
 	for _, tile := range tiles {
-		tileLines = append(tileLines, renderTile(tile, tileW, tileH, mode, pixelate))
+		tileLines = append(tileLines, renderTile(tile, tileW, tileH))
 	}
 
 	for len(tileLines) < tcols*trows {
@@ -323,7 +296,9 @@ func renderVideoTiles(tiles []videoTile, cols, rows int, mode VideoMode, pixelat
 }
 
 // renderTile renders one stream: a nick caption and tileH-1 video lines.
-func renderTile(tile videoTile, tileW, tileH int, mode VideoMode, pixelate int) []string {
+// Pixels arrive already pixelated from the sender; rendering never alters
+// the anonymity floor.
+func renderTile(tile videoTile, tileW, tileH int) []string {
 	out := make([]string, 0, tileH)
 	out = append(out, tileCaption(tile.nick, tileW))
 
@@ -333,9 +308,7 @@ func renderTile(tile videoTile, tileW, tileH int, mode VideoMode, pixelate int) 
 		return append(out, blankLines(tileW, vidH)...)
 	}
 
-	pix := pixelateBuffer(tile.pix, tile.w, tile.h, pixelate)
-
-	return append(out, renderVideoFrame(pix, tile.w, tile.h, tileW, vidH, mode)...)
+	return append(out, renderVideoFrame(tile.pix, tile.w, tile.h, tileW, vidH)...)
 }
 
 // tileCaption truncates the nick to the tile width; the chat view paints the

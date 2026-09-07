@@ -48,10 +48,10 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Camera video in the same window: `/video on`, then `Ctrl+V` toggles
   transmit; disabling kills the capture process so the OS shows the camera
   released
-- Webcam captured with ffmpeg as baseline JPEG frames and relayed over the
-  same binary `/media` socket as voice, then rendered as live ANSI art in a
-  sidebar video column above the user roster, or a fullscreen termcam-style
-  view (`Ctrl+F`), with color/ASCII modes and a pixelate slider
+- Webcam captured with ffmpeg, always pixelated to chunky blocks before
+  encoding so the wire only ever carries anonymous video (no opt-out), then
+  relayed over the same binary `/media` socket as voice and rendered as live
+  ANSI art in a sidebar video column above the user roster
 - `[CAM]` markers in the roster and a `VIDEO [TX]` badge plus an on-video
   count in the status footer; capture is Linux-only (v4l2, `/dev/video0` by
   default, override with `cam_device` in `~/.termchat/config.json`)
@@ -143,8 +143,7 @@ In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
 (react to a message), `/voice on|off` (voice session; `Ctrl+T` toggles
-transmit), `/video on|off` (video session; `Ctrl+V` toggles the camera,
-`Ctrl+F` toggles the fullscreen view), `/quit`.
+transmit), `/video on|off` (video session; `Ctrl+V` toggles the camera), `/quit`.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are

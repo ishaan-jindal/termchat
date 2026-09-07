@@ -78,7 +78,7 @@ func solidRGB(w, h int, r, g, b byte) []byte {
 }
 
 func TestRenderVideoFrameColor(t *testing.T) {
-	lines := renderVideoFrame(solidRGB(4, 4, 255, 0, 0), 4, 4, 2, 2, VideoModeColor)
+	lines := renderVideoFrame(solidRGB(4, 4, 255, 0, 0), 4, 4, 2, 2)
 
 	if len(lines) != 2 {
 		t.Fatalf("len(lines) = %d, want 2", len(lines))
@@ -99,32 +99,16 @@ func TestRenderVideoFrameColor(t *testing.T) {
 	}
 }
 
-func TestRenderVideoFrameASCII(t *testing.T) {
-	lines := renderVideoFrame(solidRGB(4, 4, 255, 255, 255), 4, 4, 3, 2, VideoModeASCII)
-
-	if len(lines) != 2 {
-		t.Fatalf("len(lines) = %d, want 2", len(lines))
-	}
-
-	for _, line := range lines {
-		stripped := strings.TrimPrefix(line, "\x1b[0m")
-
-		if stripped != "@@@" {
-			t.Errorf("white ASCII line = %q, want %q", stripped, "@@@")
-		}
-	}
-}
-
 func TestRenderVideoFrameBadInput(t *testing.T) {
-	if renderVideoFrame(nil, 4, 4, 2, 2, VideoModeColor) != nil {
+	if renderVideoFrame(nil, 4, 4, 2, 2) != nil {
 		t.Error("nil pixels rendered")
 	}
 
-	if renderVideoFrame(solidRGB(2, 2, 1, 2, 3), 2, 2, 0, 2, VideoModeColor) != nil {
+	if renderVideoFrame(solidRGB(2, 2, 1, 2, 3), 2, 2, 0, 2) != nil {
 		t.Error("zero cols rendered")
 	}
 
-	if renderVideoFrame(solidRGB(2, 2, 1, 2, 3), 2, 2, 2, 0, VideoModeColor) != nil {
+	if renderVideoFrame(solidRGB(2, 2, 1, 2, 3), 2, 2, 2, 0) != nil {
 		t.Error("zero rows rendered")
 	}
 }
@@ -158,7 +142,7 @@ func TestRenderVideoTilesCapsStreams(t *testing.T) {
 		tiles = append(tiles, videoTile{nick: nick, pix: solidRGB(4, 4, 9, 9, 9), w: 4, h: 4})
 	}
 
-	lines := renderVideoTiles(tiles, 40, 20, VideoModeColor, 0)
+	lines := renderVideoTiles(tiles, 40, 20)
 	joined := strings.Join(lines, "\n")
 
 	for _, nick := range []string{"a", "b", "c", "d"} {
@@ -177,7 +161,7 @@ func TestRenderVideoTilesCapsStreams(t *testing.T) {
 }
 
 func TestRenderVideoTilesEmpty(t *testing.T) {
-	lines := renderVideoTiles(nil, 10, 4, VideoModeColor, 0)
+	lines := renderVideoTiles(nil, 10, 4)
 
 	if len(lines) != 4 {
 		t.Fatalf("len(lines) = %d, want 4", len(lines))
@@ -185,6 +169,85 @@ func TestRenderVideoTilesEmpty(t *testing.T) {
 
 	if strings.TrimSpace(strings.Join(lines, "")) != "" {
 		t.Error("empty grid is not blank")
+	}
+}
+
+// TestPixelateBufferBlockConstancy pins the anonymity floor: every depth
+// by depth block of the output must hold one averaged color.
+func TestPixelateBufferBlockConstancy(t *testing.T) {
+	w, h, depth := 8, 8, 4
+
+	pix := make([]byte, w*h*3)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := (y*w + x) * 3
+			pix[i] = byte(x * 32)
+			pix[i+1] = byte(y * 32)
+			pix[i+2] = byte((x + y) * 16)
+		}
+	}
+
+	out := pixelateBuffer(pix, w, h, depth)
+
+	if len(out) != len(pix) {
+		t.Fatalf("len(out) = %d, want %d", len(out), len(pix))
+	}
+
+	for by := 0; by < h/depth; by++ {
+		for bx := 0; bx < w/depth; bx++ {
+			want := out[(by*depth*w+bx*depth)*3 : (by*depth*w+bx*depth)*3+3]
+
+			for y := 0; y < depth; y++ {
+				for x := 0; x < depth; x++ {
+					i := ((by*depth+y)*w + bx*depth + x) * 3
+					got := out[i : i+3]
+
+					if !bytes.Equal(got, want) {
+						t.Fatalf("block (%d,%d) varies at (%d,%d): %v vs %v", bx, by, x, y, got, want)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestPixelateBufferPassthrough(t *testing.T) {
+	pix := solidRGB(4, 4, 9, 9, 9)
+
+	if out := pixelateBuffer(pix, 4, 4, 1); !bytes.Equal(out, pix) {
+		t.Error("depth 1 must return pixels unchanged")
+	}
+}
+
+func TestEncodeVideoFrameRoundtrip(t *testing.T) {
+	pix := solidRGB(32, 24, 200, 30, 30)
+
+	raw, err := encodeVideoFrame(pix, 32, 24)
+	if err != nil {
+		t.Fatalf("encodeVideoFrame: %v", err)
+	}
+
+	got, w, h, err := decodeVideoFrame(raw)
+	if err != nil {
+		t.Fatalf("decodeVideoFrame: %v", err)
+	}
+
+	if w != 32 || h != 24 {
+		t.Fatalf("size = %dx%d, want 32x24", w, h)
+	}
+
+	if got[0] < 150 || got[1] > 90 || got[2] > 90 {
+		t.Errorf("first pixel = %v, want mostly red", got[:3])
+	}
+}
+
+func TestEncodeVideoFrameBadInput(t *testing.T) {
+	if _, err := encodeVideoFrame(nil, 4, 4); err == nil {
+		t.Error("encodeVideoFrame accepted nil pixels")
+	}
+
+	if _, err := encodeVideoFrame(solidRGB(2, 2, 1, 2, 3), 0, 2); err == nil {
+		t.Error("encodeVideoFrame accepted zero width")
 	}
 }
 
