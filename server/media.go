@@ -338,7 +338,7 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	broadcastToRoom(client.RoomID, Message{
 		Type: "system",
-		Text: client.nickname() + " joined voice chat",
+		Text: client.nickname() + " joined vc",
 	})
 
 	// The ack goes out before the write pump starts so this conn keeps
@@ -366,7 +366,7 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 			if inRoom && wasInVoice {
 				broadcastToRoom(client.RoomID, Message{
 					Type: "system",
-					Text: client.nickname() + " left voice chat",
+					Text: client.nickname() + " left vc",
 				})
 			}
 		}

@@ -7,6 +7,7 @@ import (
 
 	"termchat/shared"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -78,16 +79,10 @@ func init() {
 			handler:     cmdReact,
 		},
 		{
-			name:        "/voice",
-			usage:       "/voice on|off",
-			description: "join or leave the voice session",
-			handler:     cmdVoice,
-		},
-		{
-			name:        "/video",
-			usage:       "/video on|off",
-			description: "join or leave the video session",
-			handler:     cmdVideo,
+			name:        "/vc",
+			usage:       "/vc [on|off]",
+			description: "join or leave the voice/video call",
+			handler:     cmdVC,
 		},
 		{
 			name:        "/quit",
@@ -500,8 +495,16 @@ func cmdReact(m *Model, args []string) (bool, bool) {
 	return true, false
 }
 
-func cmdVoice(m *Model, args []string) (bool, bool) {
-	action := "status"
+// inVC reports whether either side of the call is attached.
+func inVC(m *Model) bool {
+	return m.voice != nil || m.video != nil
+}
+
+// cmdVC toggles the voice/video call: join attaches both sessions (mic and
+// camera off; Ctrl+T / Ctrl+V arm them), leave tears both down. A bare /vc
+// toggles; on|off are explicit.
+func cmdVC(m *Model, args []string) (bool, bool) {
+	action := "toggle"
 
 	if len(args) > 0 {
 		action = strings.ToLower(args[0])
@@ -509,100 +512,71 @@ func cmdVoice(m *Model, args []string) (bool, bool) {
 
 	switch action {
 	case "on":
-		switch {
-		case m.voice != nil:
-			appendUI(m, "voice is already on")
-		case m.tokenPending:
-			appendUI(m, "media request already in flight")
-		case m.media != nil:
-			m.wantVoice = true
-			m.pendingCmd = m.startVoiceSession()
-		default:
-			m.wantVoice = true
-			appendUI(m, "requesting voice session...")
-			trySend(m, Message{Type: "media_token"})
-			m.tokenPending = true
-			m.pendingCmd = mediaTimeoutCmd()
-		}
-
-	case "off":
-		if m.voice == nil {
-			appendUI(m, "voice is not on")
+		if inVC(m) {
+			appendUI(m, "already in vc")
 			return true, false
 		}
 
-		m.voice.Shutdown()
-		m.voice = nil
-		m.closeMediaIfIdle()
-		appendUI(m, "left the voice session")
+		m.pendingCmd = m.joinVC()
+
+	case "off":
+		if !inVC(m) {
+			appendUI(m, "not in vc")
+			return true, false
+		}
+
+		leaveVC(m)
+		appendUI(m, "left vc")
 
 	default:
-		if m.voice != nil {
-			appendUI(m, fmt.Sprintf(
-				"voice is on - tx %v, sent %d frames, received %d frames",
-				m.voice.tx,
-				m.voice.sentFrames.Load(),
-				m.voice.recvFrames.Load(),
-			))
-			appendUI(m, m.voice.playerStatus())
+		if inVC(m) {
+			leaveVC(m)
+			appendUI(m, "left vc")
 		} else {
-			appendUI(m, "voice is off; usage: /voice on|off")
+			m.pendingCmd = m.joinVC()
 		}
 	}
 
 	return true, false
 }
 
-func cmdVideo(m *Model, args []string) (bool, bool) {
-	action := "status"
-
-	if len(args) > 0 {
-		action = strings.ToLower(args[0])
+// joinVC attaches both voice and video sessions, requesting a media token
+// when the shared conn does not exist yet. Both sides start silent and
+// camera-off.
+func (m *Model) joinVC() tea.Cmd {
+	if m.tokenPending {
+		appendUI(m, "vc request already in flight")
+		return nil
 	}
 
-	switch action {
-	case "on":
-		switch {
-		case m.video != nil:
-			appendUI(m, "video is already on")
-		case m.tokenPending:
-			appendUI(m, "media request already in flight")
-		case m.media != nil:
-			m.wantVideo = true
-			m.pendingCmd = m.startVideoSession()
-		default:
-			m.wantVideo = true
-			appendUI(m, "requesting video session...")
-			trySend(m, Message{Type: "media_token"})
-			m.tokenPending = true
-			m.pendingCmd = mediaTimeoutCmd()
-		}
+	m.wantVoice = true
+	m.wantVideo = true
 
-	case "off":
-		if m.video == nil {
-			appendUI(m, "video is not on")
-			return true, false
-		}
+	if m.media != nil {
+		return tea.Batch(m.startVoiceSession(), m.startVideoSession())
+	}
 
+	appendUI(m, "requesting vc...")
+	trySend(m, Message{Type: "media_token"})
+	m.tokenPending = true
+	return mediaTimeoutCmd()
+}
+
+// leaveVC tears down both sides of the call and frees the shared conn.
+func leaveVC(m *Model) {
+	if m.voice != nil {
+		m.voice.Shutdown()
+		m.voice = nil
+	}
+
+	if m.video != nil {
 		m.video.Shutdown()
 		m.video = nil
 		m.videoColVisible = false
-		m.closeMediaIfIdle()
-		refitLayout(m)
-		appendUI(m, "left the video session")
-
-	default:
-		if m.video != nil {
-			appendUI(m, fmt.Sprintf(
-				"video is on - tx %v, sent %d frames, received %d frames",
-				m.video.tx,
-				m.video.sentFrames.Load(),
-				m.video.recvFrames.Load(),
-			))
-		} else {
-			appendUI(m, "video is off; usage: /video on|off")
-		}
 	}
 
-	return true, false
+	m.wantVoice = false
+	m.wantVideo = false
+	m.closeMediaIfIdle()
+	refitLayout(m)
 }

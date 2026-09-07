@@ -553,7 +553,7 @@ func (s *VoiceSession) startPlayout() error {
 	return nil
 }
 
-// playerStatus describes the playback backend for /voice diagnostics.
+// playerStatus describes the playback backend for /vc diagnostics.
 func (s *VoiceSession) playerStatus() string {
 	if s.play == nil {
 		return "player: none"
@@ -745,7 +745,7 @@ func voiceActivityTicker() tea.Cmd {
 // unexpected capture deaths to the TUI.
 func toggleTalk(m *Model) tea.Cmd {
 	if m.voice == nil {
-		appendUI(m, "join voice first with /voice on")
+		appendUI(m, "join vc first with /vc")
 
 		return nil
 	}

@@ -4,16 +4,19 @@
 
 ### Added
 
-- Camera video chat: `/video on` joins a video session and the webcam is
-  streamed to room peers as baseline JPEG frames over the shared `/media`
-  socket. Every frame is pixelated to 4x4 blocks before encoding, so only
-  anonymous video leaves the sender; there is no opt-out and no fullscreen
-  view. `Ctrl+V` toggles the camera, and `[CAM]` markers plus a `VIDEO [TX]`
-  footer badge with an on-video count show who is transmitting. Streams
-  render as live ANSI art in bordered sidebar tiles above the roster
-  (embedded panel on narrow terminals). Capture is Linux-only (v4l2);
-  `cam_device` in `~/.termchat/config.json` overrides the camera path.
-  (by @ishaan-jindal)
+- Unified voice/video call: `/vc` joins and leaves the room's call, attaching
+  both voice and video sessions at once, starting silent and camera-off.
+  `Ctrl+T` toggles the mic (push-to-talk), `Ctrl+V` toggles the camera;
+  toggling kills the capture process so the OS releases the device. Joining
+  broadcasts a `NICK joined vc` system message.
+- Camera video: the webcam is streamed to room peers as baseline JPEG frames
+  over the shared `/media` socket. Every frame is pixelated to 4x4 blocks
+  before encoding, so only anonymous video leaves the sender; there is no
+  opt-out and no fullscreen view. `[CAM]` markers plus a `VIDEO [TX]` footer
+  badge with an on-video count show who is transmitting. Streams render as
+  live ANSI art in bordered sidebar tiles above the roster (embedded panel
+  on narrow terminals). Capture is Linux-only (v4l2); `cam_device` in
+  `~/.termchat/config.json` overrides the camera path. (by @ishaan-jindal)
 - Hub screen: every launch now opens one alt-screen TUI, centered in a box,
   with the join form (room, nickname, password) above the online and LAN
   room lists. Enter joins, Tab moves between the form and the lists,
@@ -22,6 +25,8 @@
 
 ### Removed
 
+- The `/voice` command is gone, replaced by the unified `/vc` call. (by
+  @ishaan-jindal)
 - The `discover` command and its `--online` / `--local` flags are gone; the
   hub always lists online and LAN rooms below the join form. (by @ishaan-jindal)
 - The pre-TUI terminal prompts (nickname, room password, `Created Room:`)

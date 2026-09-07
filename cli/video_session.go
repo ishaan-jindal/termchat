@@ -62,17 +62,9 @@ func (m *Model) startVideoSession() tea.Cmd {
 
 	go vs.recvLoop()
 
-	cam, err := startCam(m.CameraDevice)
-	if err != nil {
-		appendUI(m, "video joined (watching) - camera unavailable: "+err.Error())
+	appendUI(m, "video joined - ctrl+v toggles camera")
 
-		return videoTicker()
-	}
-
-	startCameraAndPump(vs, cam)
-	appendUI(m, "video on - ctrl+v toggles camera")
-
-	return tea.Batch(waitForCamStop(cam), videoTicker())
+	return videoTicker()
 }
 
 // startCameraAndPump arms the camera and launches the pump that reads its
@@ -278,7 +270,7 @@ func (m *Model) startVoiceSession() tea.Cmd {
 	}
 
 	m.voice = vs
-	appendUI(m, "voice session joined - ctrl+t toggles talk")
+	appendUI(m, "voice on - ctrl+t toggles mic")
 
 	return tea.Batch(
 		waitForPlaybackStop(vs.play),
@@ -301,21 +293,12 @@ func (m *Model) closeMediaIfIdle() {
 	m.media = nil
 }
 
-// toggleVideo joins the video session or toggles the camera within it.
+// toggleVideo arms or disarms the camera within a joined call.
 func toggleVideo(m *Model) tea.Cmd {
 	if m.video == nil {
-		m.wantVideo = true
+		appendUI(m, "join vc first with /vc")
 
-		if m.media == nil {
-			appendUI(m, "requesting video session...")
-			trySend(m, Message{Type: "media_token"})
-			m.tokenPending = true
-			m.pendingCmd = mediaTimeoutCmd()
-
-			return nil
-		}
-
-		return m.startVideoSession()
+		return nil
 	}
 
 	if m.video.tx {

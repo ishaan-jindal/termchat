@@ -546,7 +546,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tokenPending = false
 			m.wantVoice = false
 			m.wantVideo = false
-			appendUI(&m, "server did not answer the media request; it may be too old for voice and video")
+			appendUI(&m, "server did not answer the media request; it may be too old for vc")
 		}
 
 		return m, nil

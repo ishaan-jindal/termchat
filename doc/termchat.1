@@ -107,32 +107,17 @@ message is rendered as a quote line above the reply.
 Toggle a reaction on the chat message with the given ID. Reacting again
 removes it. Supported names: +1, -1, laugh, heart, wow, eyes, fire, clap.
 .TP
-.B /voice on
-Join the room's voice session. Requires ffmpeg (microphone capture) and
-ffplay (playback) on the PATH. Other users see a [VC] marker next to your
-nickname while you are in voice.
-.TP
-.B /voice off
-Leave the voice session.
-.TP
-.B /voice
-Show whether the voice session is on or off.
-.TP
-.B /video on
-Join the room's video session. Requires ffmpeg (webcam capture) on the PATH;
-the camera is enabled by default when the session starts, and other users see
-a [CAM] marker next to your nickname while you transmit. Every frame is
-pixelated before encoding so only anonymous video leaves your machine; there
-is no opt-out. Incoming streams render as ANSI art in a sidebar video column
-above the user list. On narrow terminals without a sidebar the streams render
-in an embedded panel instead. Video capture is currently
-Linux-only (v4l2); other platforms join in watch mode.
-.TP
-.B /video off
-Leave the video session.
-.TP
-.B /video
-Show whether the video session is on or off.
+.B /vc
+Join the room's voice/video call. Both sessions attach at once, starting
+silent and camera\-off: Ctrl+T arms the microphone (push\-to\-talk), Ctrl+V
+arms the camera. Run \fB/vc\fR again (or \fB/vc off\fR) to leave. Other users
+see a [VC] marker while you are in the call and a [CAM] marker while your
+camera transmits. Requires ffmpeg (capture) and ffplay (playback) on the
+PATH. Camera frames are always pixelated before encoding so only anonymous
+video leaves your machine; there is no opt-out. Incoming streams render as
+ANSI art in a sidebar video column above the user list (an embedded panel on
+narrow terminals without a sidebar). Video capture is currently Linux-only
+(v4l2); other platforms join in watch mode.
 .TP
 .B /quit
 Exit the room.
@@ -175,38 +160,38 @@ Scroll through input history.
 Scroll chat viewport.
 .TP
 .B Ctrl+T
-Toggle microphone transmit while in a voice session (push-to-talk).
+Toggle microphone transmit while in a voice/video call (push-to-talk).
 .TP
 .B Ctrl+V
-Toggle webcam transmit while in a video session.
+Toggle webcam transmit while in a voice/video call.
 .TP
 .B Ctrl+C
 Quit.
-.SH VOICE CHAT
-Voice sessions ride a binary WebSocket endpoint on the same server and are
-authenticated with single-use tokens minted over the control socket. Audio
-is 16 kHz mono PCM in 40 ms chunks; overlapping speakers are mixed locally.
-Playback uses paplay when available (Linux) and falls back to ffplay; the
+.SH VOICE/VIDEO CALL
+The call rides a binary WebSocket endpoint on the same server, authenticated
+with single-use tokens minted over the control socket. Audio is 16 kHz mono
+PCM in 40 ms chunks; overlapping speakers are mixed locally. Playback uses
+paplay when available (Linux) and falls back to ffplay; the
 TERMCHAT_VOICE_PLAYER environment variable forces either. The microphone
 only transmits while armed with Ctrl+T, and muting kills the capture
 process so the operating system shows the mic as released.
 .TP
-The default input is the platform default (PulseAudio then ALSA on Linux,
-AVFoundation default on macOS). Windows needs an explicit device name; set
-\fIvoice_device\fR in ~/.termchat/config.json to the exact DirectShow audio
-device name. Headphones are recommended to avoid echo, since terminals have
-no echo cancellation.
-.SH VIDEO CHAT
-Video rides the same binary media WebSocket as voice, authenticated with the
-same single-use tokens. The webcam is captured with ffmpeg, pixelated to
-4x4 blocks before encoding, and relayed to room peers as baseline JPEG frames
+The default audio input is the platform default (PulseAudio then ALSA on
+Linux, AVFoundation default on macOS). Windows needs an explicit device
+name; set \fIvoice_device\fR in ~/.termchat/config.json to the exact
+DirectShow audio device name. Headphones are recommended to avoid echo,
+since terminals have no echo cancellation.
+.TP
+Video rides the same binary media WebSocket, authenticated with the same
+single-use tokens. The webcam is captured with ffmpeg, pixelated to 4x4
+blocks before encoding, and relayed to room peers as baseline JPEG frames
 (320x240, ~10 fps), who decode and render them as ANSI art in the sidebar
 video column or an embedded panel. Anonymity is enforced on the wire: no
-full-detail frame ever leaves the sender. Video capture is
-Linux-only (v4l2, default /dev/video0); set \fIcam_device\fR in
-~/.termchat/config.json to override the camera path. The camera transmits
-only while armed with Ctrl+V; when disabled the process is killed so the
-operating system shows the camera released.
+full-detail frame ever leaves the sender. Video capture is Linux-only (v4l2,
+default /dev/video0); set \fIcam_device\fR in ~/.termchat/config.json to
+override the camera path. The camera transmits only while armed with Ctrl+V;
+when disabled the process is killed so the operating system shows the camera
+released. Both sides start off when \fB/vc\fR joins the call.
 .SH FILES
 .TP
 .I ~/.termchat/config.json

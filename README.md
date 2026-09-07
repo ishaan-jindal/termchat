@@ -30,32 +30,25 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Host privileges with automatic succession on host disconnect
 - Room discovery: online via `/discover`, LAN via UDP multicast beacon
 
-**Voice:**
+**Voice/Video call (`/vc`):**
 
-- Push-to-talk voice chat in the same window: `/voice on`, then `Ctrl+T`
-  toggles transmit; muting kills the capture process so the OS shows the
-  mic released
+- One command joins the room's call: `/vc` attaches both voice and video
+  sessions at once, starting silent and camera-off. `Ctrl+T` arms the mic
+  (push-to-talk), `Ctrl+V` arms the camera; muting/stopping kills the
+  capture process so the OS shows the mic/camera released
 - 16 kHz mono PCM in 40 ms chunks over a binary `/media` WebSocket,
   authenticated with single-use tokens from the control socket; playback
   prefers `paplay` on Linux and falls back to `ffplay` elsewhere
 - Overlapping speakers are mixed locally per peer, with `[VC]` markers in
   the sidebar and a `VOICE [TX]` badge in the status footer
-- Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH;
-  platforms without them simply keep chat-only mode
-
-**Video:**
-
-- Camera video in the same window: `/video on`, then `Ctrl+V` toggles
-  transmit; disabling kills the capture process so the OS shows the camera
-  released
-- Webcam captured with ffmpeg, always pixelated to chunky blocks before
-  encoding so the wire only ever carries anonymous video (no opt-out), then
-  relayed over the same binary `/media` socket as voice and rendered as live
-  ANSI art in a sidebar video column above the user roster
-- `[CAM]` markers in the roster and a `VIDEO [TX]` badge plus an on-video
-  count in the status footer; capture is Linux-only (v4l2, `/dev/video0` by
-  default, override with `cam_device` in `~/.termchat/config.json`)
-- Requires `ffmpeg` (capture) on the PATH; platforms without it join in
+- Camera frames are always pixelated to chunky blocks before encoding so the
+  wire only ever carries anonymous video (no opt-out), rendered as live ANSI
+  art in a sidebar video column above the user roster with `[CAM]` markers
+  and an on-video count in the footer
+- Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH; capture
+  is Linux-only (v4l2, `/dev/video0` by default, override with `cam_device`
+  in `~/.termchat/config.json`); platforms without them simply keep
+  chat-only mode
   watch mode only
 
 **Terminal UI:**
@@ -142,8 +135,8 @@ and press `Enter` to join it directly.
 In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
-(react to a message), `/voice on|off` (voice session; `Ctrl+T` toggles
-transmit), `/video on|off` (video session; `Ctrl+V` toggles the camera), `/quit`.
+(react to a message), `/vc [on|off]` (join/leave the voice+video call;
+`Ctrl+T` toggles the mic, `Ctrl+V` toggles the camera), `/quit`.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are
