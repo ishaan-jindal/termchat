@@ -84,6 +84,12 @@ func init() {
 			handler:     cmdVoice,
 		},
 		{
+			name:        "/video",
+			usage:       "/video on|off",
+			description: "join or leave the video session",
+			handler:     cmdVideo,
+		},
+		{
 			name:        "/quit",
 			usage:       "/quit",
 			description: "leave termchat",
@@ -507,12 +513,16 @@ func cmdVoice(m *Model, args []string) (bool, bool) {
 		case m.voice != nil:
 			appendUI(m, "voice is already on")
 		case m.tokenPending:
-			appendUI(m, "voice request already in flight")
+			appendUI(m, "media request already in flight")
+		case m.media != nil:
+			m.wantVoice = true
+			m.pendingCmd = m.startVoiceSession()
 		default:
+			m.wantVoice = true
 			appendUI(m, "requesting voice session...")
 			trySend(m, Message{Type: "media_token"})
 			m.tokenPending = true
-			m.pendingCmd = voiceTimeoutCmd()
+			m.pendingCmd = mediaTimeoutCmd()
 		}
 
 	case "off":
@@ -523,6 +533,7 @@ func cmdVoice(m *Model, args []string) (bool, bool) {
 
 		m.voice.Shutdown()
 		m.voice = nil
+		m.closeMediaIfIdle()
 		appendUI(m, "left the voice session")
 
 	default:
@@ -536,6 +547,60 @@ func cmdVoice(m *Model, args []string) (bool, bool) {
 			appendUI(m, m.voice.playerStatus())
 		} else {
 			appendUI(m, "voice is off; usage: /voice on|off")
+		}
+	}
+
+	return true, false
+}
+
+func cmdVideo(m *Model, args []string) (bool, bool) {
+	action := "status"
+
+	if len(args) > 0 {
+		action = strings.ToLower(args[0])
+	}
+
+	switch action {
+	case "on":
+		switch {
+		case m.video != nil:
+			appendUI(m, "video is already on")
+		case m.tokenPending:
+			appendUI(m, "media request already in flight")
+		case m.media != nil:
+			m.wantVideo = true
+			m.pendingCmd = m.startVideoSession()
+		default:
+			m.wantVideo = true
+			appendUI(m, "requesting video session...")
+			trySend(m, Message{Type: "media_token"})
+			m.tokenPending = true
+			m.pendingCmd = mediaTimeoutCmd()
+		}
+
+	case "off":
+		if m.video == nil {
+			appendUI(m, "video is not on")
+			return true, false
+		}
+
+		m.video.Shutdown()
+		m.video = nil
+		m.videoColVisible = false
+		m.closeMediaIfIdle()
+		refitLayout(m)
+		appendUI(m, "left the video session")
+
+	default:
+		if m.video != nil {
+			appendUI(m, fmt.Sprintf(
+				"video is on - tx %v, sent %d frames, received %d frames",
+				m.video.tx,
+				m.video.sentFrames.Load(),
+				m.video.recvFrames.Load(),
+			))
+		} else {
+			appendUI(m, "video is off; usage: /video on|off")
 		}
 	}
 

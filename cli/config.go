@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	Nick        string `json:"nick"`
-	Color       string `json:"color"`
-	Theme       string `json:"theme,omitempty"`
-	VoiceDevice string `json:"voice_device,omitempty"`
+	Nick         string `json:"nick"`
+	Color        string `json:"color"`
+	Theme        string `json:"theme,omitempty"`
+	VoiceDevice  string `json:"voice_device,omitempty"`
+	CameraDevice string `json:"cam_device,omitempty"`
 }
 
 func configDir() string {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"io"
 	"net"
 	"net/http"
@@ -616,7 +617,7 @@ func TestE2EVoiceRelay(t *testing.T) {
 	}
 
 	select {
-	case got := <-bmc.inbox:
+	case got := <-bmc.audio:
 		_, _, voiceID, payload, ok := shared.ParseMediaFrame(got)
 
 		if !ok {
@@ -633,5 +634,127 @@ func TestE2EVoiceRelay(t *testing.T) {
 
 	case <-time.After(5 * time.Second):
 		t.Fatal("peer never received the voice frame")
+	}
+}
+
+func TestE2EVideoRelay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e in short mode")
+	}
+
+	// Capture needs ffmpeg; skip cleanly when it is absent.
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not found; skipping video e2e")
+	}
+
+	addr := startRealServer(t)
+	url := "ws://" + addr + "/ws"
+
+	alice := e2eConnect(t, url, "VIDE", "alice", "")
+	defer alice.close()
+
+	bob := e2eConnect(t, url, "VIDE", "bob", "")
+	defer bob.close()
+
+	alice.nextOfType("history")
+	alice.nextOfType("system")
+	bob.nextOfType("history")
+	bob.nextOfType("system")
+
+	alice.send(Message{Type: "media_token"})
+	atok := alice.nextOfType("media_token").Token
+
+	bob.send(Message{Type: "media_token"})
+	btok := bob.nextOfType("media_token").Token
+
+	amc, err := dialMedia("ws://"+addr, "VIDE", atok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer amc.close()
+
+	bmc, err := dialMedia("ws://"+addr, "VIDE", btok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bmc.close()
+
+	// Feed a real still through the capture pipeline via TERMCHAT_CAM_SOURCE.
+	still := filepath.Join(t.TempDir(), "still.jpg")
+	raw := encodeTestJPEG(t, solidNRGBA(64, 48, color.NRGBA{R: 10, G: 200, B: 40, A: 255}))
+	if err := os.WriteFile(still, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("TERMCHAT_CAM_SOURCE", still)
+
+	cam, err := startCam("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cam.stop()
+
+	cc := &camCapture{stdout: cam.stdout, exited: cam.exited, cmd: cam.cmd, tail: cam.tail}
+	vs := &VideoSession{conn: amc}
+	done := make(chan struct{})
+
+	go func() {
+		pumpCamera(vs, cc)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for {
+		select {
+		case got := <-bmc.video:
+			kind, codec, streamID, payload, ok := shared.ParseMediaFrame(got)
+
+			if !ok {
+				t.Fatal("relayed video frame does not parse")
+			}
+
+			if kind != shared.MediaKindVideo {
+				t.Fatalf("kind = %#x, want video", kind)
+			}
+
+			if codec != shared.MediaCodecJPEG {
+				t.Fatalf("codec = %#x, want JPEG", codec)
+			}
+
+			if streamID == 0 {
+				t.Error("streamID was not server-stamped")
+			}
+
+			if len(payload) == 0 || len(payload) > shared.VideoMaxFrameBytes {
+				t.Fatalf("payload = %d bytes, out of range", len(payload))
+			}
+
+			pix, w, h, decErr := decodeVideoFrame(payload)
+			if decErr != nil {
+				t.Fatalf("decoding relayed frame: %v", decErr)
+			}
+
+			if w != shared.VideoCapWidth || h != shared.VideoCapHeight {
+				t.Errorf("decoded size = %dx%d, want %dx%d", w, h, shared.VideoCapWidth, shared.VideoCapHeight)
+			}
+
+			if pix[1] < 150 || pix[0] > 90 || pix[2] > 90 {
+				t.Errorf("decoded pixel = %v, want mostly green", pix[:3])
+			}
+
+			return
+
+		case <-done:
+			t.Fatal("camera pipeline exited before any frame arrived")
+		case <-time.After(5 * time.Second):
+			t.Fatal("peer never received a video frame")
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for a video frame")
+		}
+
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -417,8 +417,9 @@ func (mc *micCapture) stop() {
 	})
 }
 
-// VoiceSession bundles the media connection with its audio processes. All
-// methods run on the Bubble Tea update goroutine.
+// VoiceSession bundles a voice session atop the shared media connection
+// with its audio processes. All methods run on the Bubble Tea update
+// goroutine; the Model owns the conn lifecycle.
 type VoiceSession struct {
 	conn *MediaConn
 	tx   bool
@@ -583,7 +584,6 @@ func (s *VoiceSession) playerStatus() string {
 
 func (s *VoiceSession) Shutdown() {
 	s.stopTx()
-	s.conn.close()
 
 	if s.play != nil {
 		s.play.stop()
@@ -606,8 +606,8 @@ func (s *VoiceSession) stopTx() {
 	s.mic = nil
 }
 
-// playoutLoop consumes inbound frames into per-speaker rings and writes one
-// mixed 40 ms chunk per tick; it is the only consumer of conn.inbox.
+// playoutLoop consumes inbound audio frames into per-speaker rings and
+// writes one mixed 40 ms chunk per tick.
 func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 	ticker := time.NewTicker(chunkDuration)
 	defer ticker.Stop()
@@ -618,7 +618,7 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 
 	for {
 		select {
-		case frame := <-s.conn.inbox:
+		case frame := <-s.conn.audio:
 			kind, codec, id, payload, ok := shared.ParseMediaFrame(frame)
 
 			if !ok || kind != shared.MediaKindAudio || codec != shared.MediaCodecPCM16 {

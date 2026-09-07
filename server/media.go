@@ -16,11 +16,14 @@ import (
 var (
 	mediaTokenTTL = 30 * time.Second
 
-	mediaPongWait            = 30 * time.Second
-	mediaPingPeriod          = 10 * time.Second
-	maxMediaFrameSize        = int64(16384)
-	mediaUpstreamBytesPerSec = 128 * 1024
-	mediaSendBuffer          = 64
+	mediaPongWait     = 30 * time.Second
+	mediaPingPeriod   = 10 * time.Second
+	mediaSendBuffer   = 64
+	maxMediaFrameSize = int64(256 * 1024)
+
+	// The upstream budget covers audio and video together: one JPEG frame
+	// can exceed the old audio-only budget on its own.
+	mediaUpstreamBytesPerSec = 512 * 1024
 )
 
 const mediaTokenBytes = 16
@@ -374,9 +377,10 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 	mediaReadPump(mc)
 }
 
-// mediaReadPump validates inbound frames, stamps the sender's voice ID over
-// whatever the client wrote there, and relays to room peers. It runs on the
-// handler goroutine; its exit tears the voice session down via defer.
+// mediaReadPump validates inbound frames, stamps the sender's stream ID
+// over whatever the client wrote there, and relays to room peers. Audio and
+// baseline-JPEG video are relayed; anything else drops the connection. It
+// runs on the handler goroutine; its exit tears the session down via defer.
 func mediaReadPump(mc *mediaConn) {
 	livePumps.Add(1)
 	defer livePumps.Add(-1)
@@ -405,9 +409,22 @@ func mediaReadPump(mc *mediaConn) {
 			return
 		}
 
-		kind, _, _, _, ok := shared.ParseMediaFrame(frame)
+		kind, codec, _, _, ok := shared.ParseMediaFrame(frame)
 
-		if !ok || kind != shared.MediaKindAudio {
+		if !ok {
+			return
+		}
+
+		switch kind {
+		case shared.MediaKindAudio:
+			if codec != shared.MediaCodecPCM16 {
+				return
+			}
+		case shared.MediaKindVideo:
+			if codec != shared.MediaCodecJPEG {
+				return
+			}
+		default:
 			return
 		}
 

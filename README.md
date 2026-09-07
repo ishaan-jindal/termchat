@@ -43,6 +43,21 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH;
   platforms without them simply keep chat-only mode
 
+**Video:**
+
+- Camera video in the same window: `/video on`, then `Ctrl+V` toggles
+  transmit; disabling kills the capture process so the OS shows the camera
+  released
+- Webcam captured with ffmpeg as baseline JPEG frames and relayed over the
+  same binary `/media` socket as voice, then rendered as live ANSI art in a
+  sidebar video column above the user roster, or a fullscreen termcam-style
+  view (`Ctrl+F`), with color/ASCII modes and a pixelate slider
+- `[CAM]` markers in the roster and a `VIDEO [TX]` badge plus an on-video
+  count in the status footer; capture is Linux-only (v4l2, `/dev/video0` by
+  default, override with `cam_device` in `~/.termchat/config.json`)
+- Requires `ffmpeg` (capture) on the PATH; platforms without it join in
+  watch mode only
+
 **Terminal UI:**
 
 - One hub screen: join form (room, nickname, password) with online and LAN
@@ -128,7 +143,8 @@ In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
 (react to a message), `/voice on|off` (voice session; `Ctrl+T` toggles
-transmit), `/quit`.
+transmit), `/video on|off` (video session; `Ctrl+V` toggles the camera,
+`Ctrl+F` toggles the fullscreen view), `/quit`.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are
@@ -191,6 +207,11 @@ https://termchat.sacred99.online/7WHB
 - Binary-name whitelist on `/bin/{binary}` redirects
 - Voice sessions require single-use tokens bound to the chat connection,
   with per-connection frame-size and bandwidth caps on `/media`
+- Video rides the same `/media` socket with the same token auth; frames are
+  capped at 128 KB each and the shared per-connection upstream budget is
+  512 KB/s. The camera only transmits while armed with `Ctrl+V`, frames are
+  never stored, and disabling kills the capture process so the OS releases
+  the camera
 
 Recommended future hardening: global + per-room rate limits, join
 throttling, profanity / spam filtering, abuse detection.

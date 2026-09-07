@@ -713,6 +713,7 @@ func (m appModel) enterChat(conn *Connection) (tea.Model, tea.Cmd) {
 	chat.serverURL = m.serverURL
 	chat.color = m.cfg.Color
 	chat.VoiceDevice = m.cfg.VoiceDevice
+	chat.CameraDevice = m.cfg.CameraDevice
 
 	if m.hostMode {
 		chat.IsHost = true

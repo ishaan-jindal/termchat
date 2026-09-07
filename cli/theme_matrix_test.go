@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -105,6 +106,30 @@ func TestViewStatesHaveNoUnpaintedCells(t *testing.T) {
 		}},
 		{"theme-list-shown", func(m *Model) {
 			handleCommand(m, "/theme")
+		}},
+		{"video-sidebar", func(m *Model) {
+			vs := fakeVideoSession(true, solidRGB(16, 12, 30, 50, 70))
+			vs.peers[2] = &videoPeerFrame{pix: solidRGB(16, 12, 70, 30, 50), w: 16, h: 12, updated: time.Now()}
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{
+				{Nick: "alice", Color: "#ff0000", IsHost: true, Typing: true},
+				{Nick: "bob", Color: "#00ff00", VoiceID: 1},
+				{Nick: "carol", Color: "#0000ff", VoiceID: 2, Typing: true},
+			}
+			refitLayout(m)
+		}},
+		{"video-sidebar-compact", func(m *Model) {
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+			*m = updated.(Model)
+			vs := fakeVideoSession(true, solidRGB(16, 12, 30, 50, 70))
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{
+				{Nick: "alice", Color: "#ff0000", IsHost: true},
+				{Nick: "bob", Color: "#00ff00", VoiceID: 1, Typing: true},
+			}
+			refitLayout(m)
 		}},
 	}
 

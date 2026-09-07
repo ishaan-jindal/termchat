@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/reflow/wordwrap"
 )
 
@@ -96,11 +97,28 @@ type Model struct {
 	selected  int
 
 	voice *VoiceSession
+	video *VideoSession
+
+	// media is the single shared /media WebSocket for voice and video;
+	// the sessions above only borrow it, the Model owns its lifecycle.
+	media *MediaConn
+
+	// wantVoice and wantVideo record which sessions a media_token request
+	// was issued for; mediaReadyMsg attaches the marked ones.
+	wantVoice bool
+	wantVideo bool
+
+	// videoColVisible remembers whether the sidebar video column was last
+	// shown, so the video tick can refit the layout on transitions.
+	videoColVisible bool
 
 	// VoiceDevice is the configured microphone name passed to ffmpeg.
 	VoiceDevice string
 
-	// tokenPending guards against duplicate voice requests while the
+	// CameraDevice is the configured webcam path passed to ffmpeg.
+	CameraDevice string
+
+	// tokenPending guards against duplicate media requests while the
 	// media_token reply or its timeout tick is still in flight.
 	tokenPending bool
 
@@ -168,6 +186,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.KeyMsg:
+		if m.video != nil && m.video.full {
+			return m.updateVideoFullKey(msg)
+		}
+
 		switch msg.String() {
 
 		case "ctrl+c":
@@ -177,6 +199,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := toggleTalk(&m)
 
 			return m, cmd
+
+		case "ctrl+v":
+			cmd := toggleVideo(&m)
+
+			pending := m.pendingCmd
+			m.pendingCmd = nil
+
+			return m, tea.Batch(cmd, pending)
+
+		case "ctrl+f":
+			if m.video != nil {
+				m.video.full = !m.video.full
+				resizeViewport(&m)
+			}
+
+			return m, nil
 
 		case "pgup", "pgdown":
 			var cmd tea.Cmd
@@ -401,10 +439,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connected = false
 
 		if m.voice != nil {
-			m.voice.conn.close()
+			m.voice.Shutdown()
 			m.voice = nil
 			appendUI(&m, "voice session ended: connection lost")
 		}
+
+		if m.video != nil {
+			m.video.Shutdown()
+			m.video = nil
+			m.videoColVisible = false
+			appendUI(&m, "video session ended: connection lost")
+		}
+
+		m.closeMediaIfIdle()
 
 		appendUI(&m, "connection lost, reconnecting...")
 
@@ -425,49 +472,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Quit
 
-	case voiceReadyMsg:
-		vs := &VoiceSession{conn: msg.conn}
+	case mediaReadyMsg:
+		m.media = msg.conn
 
-		err := vs.startPlayout()
-		if err != nil {
-			msg.conn.close()
-			appendUI(&m, "voice unavailable: "+err.Error())
+		cmds := []tea.Cmd{waitForMediaEnd(msg.conn)}
 
-			return m, nil
+		if m.wantVoice && m.voice == nil {
+			cmds = append(cmds, m.startVoiceSession())
 		}
 
-		dumps, dumpErr := openVoiceDumps()
-		vs.dumps = dumps
-
-		if dumpErr != nil {
-			appendUI(&m, "voice debug dumps unavailable: "+dumpErr.Error())
-		} else if dumps != nil {
-			pid := os.Getpid()
-			dir := os.Getenv("TERMCHAT_VOICE_DEBUG")
-			appendUI(&m, fmt.Sprintf("voice debug: %s/tx-%d.wav and rx-%d.wav", dir, pid, pid))
+		if m.wantVideo && m.video == nil {
+			cmds = append(cmds, m.startVideoSession())
 		}
 
-		m.voice = vs
-		appendUI(&m, "voice session joined - ctrl+t toggles talk")
+		m.wantVoice = false
+		m.wantVideo = false
 
-		return m, tea.Batch(
-			waitForVoiceEnd(msg.conn),
-			waitForPlaybackStop(vs.play),
-			voiceActivityTicker(),
-		)
+		return m, tea.Batch(cmds...)
 
-	case voiceErrorMsg:
+	case mediaErrorMsg:
 		m.tokenPending = false
-		appendUI(&m, "voice unavailable: "+msg.err.Error())
+		m.wantVoice = false
+		m.wantVideo = false
+		appendUI(&m, "media unavailable: "+msg.err.Error())
 
 		return m, nil
 
-	case voiceEndedMsg:
+	case mediaEndedMsg:
 		if m.voice != nil {
 			m.voice.Shutdown()
 			m.voice = nil
 			appendUI(&m, "voice session ended")
 		}
+
+		if m.video != nil {
+			m.video.Shutdown()
+			m.video = nil
+			m.videoColVisible = false
+			appendUI(&m, "video session ended")
+		}
+
+		m.closeMediaIfIdle()
+		refitLayout(&m)
 
 		return m, nil
 
@@ -507,10 +553,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
-	case voiceTimeoutTickMsg:
+	case mediaTimeoutTickMsg:
 		if m.tokenPending {
 			m.tokenPending = false
-			appendUI(&m, "server did not answer the voice request; it may be too old for voice")
+			m.wantVoice = false
+			m.wantVideo = false
+			appendUI(&m, "server did not answer the media request; it may be too old for voice and video")
+		}
+
+		return m, nil
+
+	case videoTickMsg:
+		if m.video != nil {
+			m.video.prune()
+
+			vis := m.showSidebar && m.videoColumnVisible()
+
+			if vis != m.videoColVisible {
+				m.videoColVisible = vis
+				refitLayout(&m)
+			}
+
+			return m, videoTicker()
+		}
+
+		return m, nil
+
+	case videoCamStoppedMsg:
+		if m.video != nil && m.video.tx && m.video.cam == msg.cam {
+			m.video.tx = false
+			m.video.cam = nil
+
+			text := "camera stopped unexpectedly"
+			if msg.tail != "" {
+				text += ": " + msg.tail
+			}
+
+			appendUI(&m, text)
 		}
 
 		return m, nil
@@ -519,26 +598,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		m.compactMode = msg.Width < 100
-		m.showSidebar = msg.Width >= 70
-
-		sidebarWidth := 0
-
-		if m.showSidebar {
-			if m.compactMode {
-				sidebarWidth = 16
-			} else {
-				sidebarWidth = 22
-			}
-		}
-
-		m.viewport.Width = max(msg.Width-sidebarWidth-10, 20)
-
-		inputWidth := max(m.width-14, 20)
-		m.input.SetWidth(inputWidth)
-
+		fitWidths(&m)
 		resizeViewport(&m)
-
 		rerenderAll(&m)
 
 		return m, nil
@@ -553,6 +614,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	if m.video != nil && m.video.full {
+		return m.viewVideoFull()
+	}
+
 	scrollInfo := ""
 
 	if !m.viewport.AtTop() {
@@ -574,7 +639,7 @@ func (m Model) View() string {
 		content = lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			messagesPanel,
-			renderUsers(m),
+			renderSidebar(m),
 		)
 	} else {
 		content = messagesPanel
@@ -606,29 +671,61 @@ func (m Model) View() string {
 		}
 	}
 
+	videoInfo := ""
+
+	if m.video != nil {
+		now := time.Now().UnixMilli()
+
+		sending := m.video.tx &&
+			now-m.video.lastSent.Load() < 600
+		hearing := now-m.video.lastRecv.Load() < 600
+
+		videoInfo = " - VIDEO"
+
+		if sending {
+			videoInfo += " [TX*]"
+		} else if m.video.tx {
+			videoInfo += " [TX]"
+		}
+
+		if hearing {
+			videoInfo += " [RX*]"
+		}
+	}
+
+	onVideo := len(m.activeVideoTiles())
+	onVideoInfo := ""
+	if onVideo > 0 {
+		onVideoInfo = fmt.Sprintf(" - %d on video", onVideo)
+	}
+
 	state := "Connected"
 	if !m.connected {
 		state = "Reconnecting"
 	}
 
 	statusText := fmt.Sprintf(
-		"%s - Room %s - %d users%s%s",
+		"%s - Room %s - %d users%s%s%s%s",
 		state,
 		m.room,
 		len(m.users),
 		scrollInfo,
 		voiceInfo,
+		videoInfo,
+		onVideoInfo,
 	)
 
 	if m.IsHost {
 		statusText = fmt.Sprintf(
-			"SELF-HOSTED - Room %s - %s:%d - %d users%s%s",
+			"SELF-HOSTED - Room %s - %s:%d - %d users%s%s%s%s",
 			m.room,
 			m.HostIP,
 			m.HostPort,
 			len(m.users),
 			scrollInfo,
 			voiceInfo,
+			videoInfo,
+			onVideoInfo,
 		)
 
 		if !m.connected {
@@ -657,6 +754,10 @@ func (m Model) View() string {
 		}
 	}
 
+	if m.videoPanelHeight() > 0 {
+		rows = append(rows, m.renderVideoPanel())
+	}
+
 	rows = append(rows, input, status)
 
 	// Every row is painted to the full terminal width so JoinVertical
@@ -678,17 +779,251 @@ func (m Model) View() string {
 		Render(ui)
 }
 
-func renderUsers(m Model) string {
+// renderVideoPanel renders the embedded video grid in a bordered panel the
+// same width as the messages panel.
+func (m Model) renderVideoPanel() string {
+	inner := m.viewport.Width
+	contentH := m.videoPanelHeight() - 2
+
+	tiles := m.activeVideoTiles()
+
 	var lines []string
 
-	width := 20
-	if m.compactMode {
-		width = 14
+	if len(tiles) > 0 {
+		lines = renderVideoTiles(tiles, inner, contentH, m.video.mode, 0)
+	} else {
+		lines = blankLines(inner, contentH)
+		lines[0] = tileCaption("starting camera...", inner)
 	}
 
-	header := m.theme.usersHeader.Width(width - 2).Align(lipgloss.Center).Render("USERS")
+	return m.theme.panel.
+		Width(m.viewport.Width + 4).
+		Height(m.videoPanelHeight()).
+		Render(strings.Join(lines, "\n"))
+}
+
+// viewVideoFull renders the termcam-style fullscreen video view: a header,
+// the stream grid and a status bar.
+func (m Model) viewVideoFull() string {
+	width := max(m.width, 20)
+	gridH := max(m.height-2, 3)
+
+	tiles := m.activeVideoTiles()
+
+	var grid []string
+
+	if len(tiles) > 0 {
+		grid = renderVideoTiles(tiles, width, gridH, m.video.mode, m.video.pixelate)
+	} else {
+		grid = blankLines(width, gridH)
+		grid[gridH/2] = tileCaption("no video - waiting for peers...", width)
+	}
+
+	names := make([]string, 0, len(tiles))
+	for _, t := range tiles {
+		names = append(names, t.nick)
+	}
+
+	peers := strings.Join(names, ", ")
+	if peers == "" {
+		peers = "no peers"
+	}
+
+	header := m.theme.base.Width(width).Render(
+		fmt.Sprintf("VIDEO - Room %s - %s", m.room, peers))
+
+	status := m.theme.base.Width(width).Render(
+		fmt.Sprintf(" %s | Pixelate %d/%d | Tab=switch +/-=pixelate ctrl+f=chat ctrl+v=cam",
+			m.video.mode, m.video.pixelate, maxVideoPixelate))
+
+	ui := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		strings.Join(grid, "\n"),
+		status,
+	)
+
+	return m.theme.base.
+		Width(width).
+		Height(max(m.height, 3)).
+		Render(ui)
+}
+
+type videoPeer struct {
+	id    uint32
+	frame *videoPeerFrame
+}
+
+// activeVideoTiles snapshots the local preview plus the freshest peer
+// streams, resolving sender nicks from the room roster.
+func (m *Model) activeVideoTiles() []videoTile {
+	s := m.video
+	if s == nil {
+		return nil
+	}
+
+	cutoff := time.Now().Add(-videoStaleAfter)
+
+	s.mu.Lock()
+	self := s.self
+
+	var peers []videoPeer
+
+	for id, f := range s.peers {
+		if f.updated.Before(cutoff) {
+			continue
+		}
+
+		peers = append(peers, videoPeer{id: id, frame: f})
+	}
+
+	s.mu.Unlock()
+
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i].frame.updated.After(peers[j].frame.updated)
+	})
+
+	var tiles []videoTile
+
+	if self != nil && s.tx {
+		tiles = append(tiles, videoTile{nick: m.nick + " (you)", pix: self.pix, w: self.w, h: self.h})
+	}
+
+	for _, p := range peers {
+		if len(tiles) >= maxVideoTiles {
+			break
+		}
+
+		tiles = append(tiles, videoTile{nick: m.videoNickWithFlags(p.id), pix: p.frame.pix, w: p.frame.w, h: p.frame.h})
+	}
+
+	return tiles
+}
+
+// videoNickWithFlags resolves a stream to a roster nick plus status flags,
+// e.g. "alice [host]"; unknown streams fall back to a cam-N label.
+func (m *Model) videoNickWithFlags(id uint32) string {
+	for _, u := range m.users {
+		if u.VoiceID != id {
+			continue
+		}
+
+		label := u.Nick
+
+		if u.IsHost {
+			label += " [host]"
+		}
+
+		return label
+	}
+
+	return fmt.Sprintf("cam-%d", id)
+}
+
+// videoNick resolves a stream ID to a roster nick via the ID the server
+// stamped on relayed frames.
+func (m *Model) videoNick(id uint32) string {
+	for _, u := range m.users {
+		if u.VoiceID == id {
+			return u.Nick
+		}
+	}
+
+	return fmt.Sprintf("cam-%d", id)
+}
+
+// videoCamNicks lists roster nicks with a live stream, for the sidebar.
+func (m *Model) videoCamNicks() []string {
+	s := m.video
+	if s == nil {
+		return nil
+	}
+
+	cutoff := time.Now().Add(-videoStaleAfter)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []string
+
+	if s.self != nil && s.tx {
+		out = append(out, m.nick)
+	}
+
+	for id, f := range s.peers {
+		if f.updated.Before(cutoff) {
+			continue
+		}
+
+		out = append(out, m.videoNick(id))
+	}
+
+	return out
+}
+
+// videoPanelHeight is the embedded panel's total height including its
+// border, or zero when the panel stays hidden. The sidebar replaces the
+// bottom panel whenever it is visible.
+func (m *Model) videoPanelHeight() int {
+	if m.video == nil || m.video.full || m.height < 20 || m.viewport.Width < 20 {
+		return 0
+	}
+
+	if m.showSidebar {
+		return 0
+	}
+
+	if len(m.activeVideoTiles()) == 0 && !m.video.tx {
+		return 0
+	}
+
+	content := m.height / 5
+	if content < 6 {
+		content = 6
+	}
+	if content > 12 {
+		content = 12
+	}
+
+	return content + 2
+}
+
+// renderSidebar paints the right column: the video column on top (bordered
+// tiles for everyone transmitting) and the users roster below, in one panel.
+func renderSidebar(m Model) string {
+	// The panel's border and padding add 2 cells to whatever Width is
+	// requested, so back out 2 to land exactly on the reserved sidebar width.
+	panelW := m.sidebarWidth() - 2
+	inner := panelW - 2
+
+	camSet := map[string]bool{}
+	for _, nick := range m.videoCamNicks() {
+		camSet[nick] = true
+	}
+
+	lines := renderRoster(m, inner, camSet)
+
+	// Roster must keep a floor: header, rule, blank and two nick rows.
+	rosterFloor := 5
+	if m.showSidebar && m.video != nil {
+		lines = renderVideoSection(m, inner, rosterFloor, lines)
+	}
+
+	content := strings.Join(lines, "\n")
+	return m.theme.panel.
+		Width(panelW).
+		Height(m.viewport.Height).
+		Render(content)
+}
+
+// renderRoster builds the USERS section: header, rule, blank, then nick
+// rows. It returns the rows so the video column can borrow height above.
+func renderRoster(m Model, inner int, camSet map[string]bool) []string {
+	var lines []string
+
+	header := m.theme.usersHeader.Width(inner).Align(lipgloss.Center).Render("USERS")
 	lines = append(lines, header)
-	lines = append(lines, strings.Repeat("-", width-2))
+	lines = append(lines, strings.Repeat("-", inner))
 	lines = append(lines, "")
 
 	for _, user := range m.users {
@@ -706,6 +1041,9 @@ func renderUsers(m Model) string {
 		if user.VoiceID != 0 {
 			status += "[VC] "
 		}
+		if camSet[user.Nick] {
+			status += "[CAM] "
+		}
 		if user.Typing {
 			status += "[...] "
 		}
@@ -717,15 +1055,60 @@ func renderUsers(m Model) string {
 			Render("* " + nick)
 
 		line := coloredNick + m.theme.base.Render(fmt.Sprintf("%4s %s", joined, status))
-
-		lines = append(lines, line)
+		lines = append(lines, ansi.Truncate(line, inner, ""))
 	}
 
-	content := strings.Join(lines, "\n")
-	return m.theme.panel.
-		Width(width).
-		Height(m.viewport.Height).
-		Render(content)
+	return lines
+}
+
+// renderVideoSection prepends the VIDEO column above the roster: a header,
+// bordered tiles (each 4 video lines plus a caption) and a +N overflow line,
+// stopping short of the roster floor.
+func renderVideoSection(m Model, inner, rosterFloor int, roster []string) []string {
+	var section []string
+
+	header := m.theme.usersHeader.Width(inner).Align(lipgloss.Center).Render("VIDEO")
+	section = append(section, header)
+	section = append(section, strings.Repeat("-", inner))
+
+	avail := m.viewport.Height - len(roster)
+	if avail < rosterFloor {
+		avail = rosterFloor
+	}
+	avail -= len(section)
+
+	tiles := m.activeVideoTiles()
+
+	tileH := sidebarTileVidH + 1 // caption + video lines
+	tileStyle := m.theme.panel.Inherit(m.theme.panel).Padding(0)
+
+	// The nested box must stay within the outer panel's wrap budget
+	// (width - 2); the box's own border consumes 2 more cells.
+	tileW := inner - 2
+
+	shown := 0
+
+	for _, tile := range tiles {
+		if len(section)+tileH > avail {
+			break
+		}
+
+		if tileW < 6 {
+			break
+		}
+
+		body := renderTile(tile, tileW, tileH, m.video.mode, 0)
+		box := tileStyle.Width(tileW).Render(strings.Join(body, "\n"))
+		section = append(section, strings.Split(box, "\n")...)
+		shown++
+	}
+
+	if shown < len(tiles) {
+		section = append(section, m.theme.system.Render(
+			fmt.Sprintf("+%d more on video", len(tiles)-shown)))
+	}
+
+	return append(section, roster...)
 }
 
 func appendFormattedMessage(m *Model, msg Message) {
@@ -1039,7 +1422,7 @@ func resizeViewport(m *Model) {
 	}
 
 	m.viewport.Height = max(
-		m.height-textareaHeight(m.input)-popupHeight-7,
+		m.height-textareaHeight(m.input)-popupHeight-7-m.videoPanelHeight(),
 		5,
 	)
 }
@@ -1094,6 +1477,58 @@ func textareaHeight(input textarea.Model) int {
 		return 8
 	}
 	return lines
+}
+
+// videoColumnVisible reports whether the sidebar carries the video column:
+// a session is joined and either it is transmitting or a stream is showing.
+func (m *Model) videoColumnVisible() bool {
+	if m.video == nil {
+		return false
+	}
+
+	return m.video.tx || len(m.activeVideoTiles()) > 0
+}
+
+// sidebarWidth returns the active sidebar column width under the current
+// terminal size and video-column state.
+func (m *Model) sidebarWidth() int {
+	if m.videoColumnVisible() {
+		if m.compactMode {
+			return 22
+		}
+
+		return 30
+	}
+
+	if m.compactMode {
+		return 16
+	}
+
+	return 22
+}
+
+// fitWidths derives the derived layout flags and panel widths from the
+// terminal size and the video-column state.
+func fitWidths(m *Model) {
+	m.compactMode = m.width < 100
+	m.showSidebar = m.width >= 70
+
+	sw := 0
+	if m.showSidebar {
+		sw = m.sidebarWidth()
+	}
+
+	m.viewport.Width = max(m.width-sw-10, 20)
+
+	m.input.SetWidth(max(m.width-14, 20))
+}
+
+// refitLayout recomputes widths and repaints after a layout-affecting
+// change such as the video column appearing or disappearing.
+func refitLayout(m *Model) {
+	fitWidths(m)
+	resizeViewport(m)
+	rerenderAll(m)
 }
 
 func relativeTime(unix int64) string {
