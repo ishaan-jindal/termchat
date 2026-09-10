@@ -1005,6 +1005,19 @@ func renderSidebar(m Model) string {
 		Render(content)
 }
 
+// presenceTags returns the shared host and voice markers for a user.
+func presenceTags(user UserInfo) string {
+	tags := ""
+	if user.IsHost {
+		tags += "[host] "
+	}
+	if user.VoiceID != 0 {
+		tags += "[VC] "
+	}
+
+	return tags
+}
+
 // rosterRow renders one nick line.
 func rosterRow(m Model, user UserInfo, inner int, camSet map[string]bool) string {
 	nick := user.Nick
@@ -1013,14 +1026,7 @@ func rosterRow(m Model, user UserInfo, inner int, camSet map[string]bool) string
 	}
 
 	joined := relativeTime(user.JoinedAt - m.clockOffset)
-
-	status := ""
-	if user.IsHost {
-		status += "[host] "
-	}
-	if user.VoiceID != 0 {
-		status += "[VC] "
-	}
+	status := presenceTags(user)
 	if camSet[user.Nick] {
 		status += "[CAM] "
 	}
@@ -1343,8 +1349,7 @@ func formatReactions(reactions []Reaction) string {
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-// appendUsersList writes the current room roster into the chat log as system
-// lines, marking the host.
+// appendUsersList writes the current room roster into the chat log.
 func appendUsersList(m *Model) {
 	appendFormattedMessage(m, Message{
 		Type: "system",
@@ -1353,9 +1358,8 @@ func appendUsersList(m *Model) {
 
 	for _, user := range m.users {
 		line := "  " + user.Nick
-
-		if user.IsHost {
-			line += " (host)"
+		if tags := strings.TrimSpace(presenceTags(user)); tags != "" {
+			line += " " + tags
 		}
 
 		appendFormattedMessage(m, Message{

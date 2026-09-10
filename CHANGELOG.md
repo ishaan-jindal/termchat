@@ -27,6 +27,11 @@
   `Ctrl+R` rescans, `Ctrl+H` hosts the room on the LAN, and `Ctrl+T` cycles
   the color theme. (by @ishaan-jindal)
 
+### Changed
+
+- `/users` prints sidebar-style presence markers (`[host]`, `[VC]`) instead
+  of `(host)`, so the roster dump shows who is in the voice call.
+
 ### Removed
 
 - The `/voice` command is gone, replaced by the unified `/vc` call. (by

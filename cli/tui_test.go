@@ -198,7 +198,7 @@ func TestCommandUsers(t *testing.T) {
 		Type: "users_list",
 		Users: []UserInfo{
 			{Nick: "alice", IsHost: true},
-			{Nick: "bob"},
+			{Nick: "bob", VoiceID: 7},
 		},
 	})
 
@@ -212,7 +212,7 @@ func TestCommandUsers(t *testing.T) {
 
 	rendered := strings.Join(renderedLines(&m), " ")
 
-	for _, want := range []string{"Users (2):", "alice (host)", "bob"} {
+	for _, want := range []string{"Users (2):", "alice [host]", "bob [VC]"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("output = %q, want %q", rendered, want)
 		}
