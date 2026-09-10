@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const videoHalfBlock = "▀"
+const videoHalfBlock = "\u2580"
 
 // videoJPEGQuality balances frame size against block fidelity for the
 // transmit-side pixelated encode.

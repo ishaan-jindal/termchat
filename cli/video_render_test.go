@@ -91,8 +91,8 @@ func TestRenderVideoFrameColor(t *testing.T) {
 			t.Errorf("line missing red fg: %q", line)
 		}
 
-		if strings.Count(line, "▀") != 2 {
-			t.Errorf("line has %d cells, want 2: %q", strings.Count(line, "▀"), line)
+		if strings.Count(line, "\u2580") != 2 {
+			t.Errorf("line has %d cells, want 2: %q", strings.Count(line, "\u2580"), line)
 		}
 
 		if !strings.HasSuffix(line, "\x1b[0m") {

@@ -233,7 +233,7 @@ func stressSidebarModel(width, height int) Model {
 
 // assertSidebarLinesFit verifies the rendered sidebar is a clean rectangle:
 // every content line fits the panel width and no nested tile box is
-// fragmented across lines (a split corner would leave a lone ╭ or ╰).
+// fragmented across lines (a split corner would leave one end behind).
 func assertSidebarLinesFit(t *testing.T, m Model) {
 	t.Helper()
 
@@ -247,7 +247,7 @@ func assertSidebarLinesFit(t *testing.T, m Model) {
 			t.Errorf("sidebar line %d width = %d, want %d: %q", i, w, width, line)
 		}
 
-		for _, corner := range []string{"╭", "╰"} {
+		for _, corner := range []string{"\u256d", "\u2570"} {
 			if strings.Contains(plain, corner) && !strings.Contains(plain, boxOpposite(corner)) {
 				t.Errorf("sidebar line %d has a fragmented %s corner: %q", i, corner, line)
 			}
@@ -256,11 +256,11 @@ func assertSidebarLinesFit(t *testing.T, m Model) {
 }
 
 func boxOpposite(corner string) string {
-	if corner == "╭" {
-		return "╮"
+	if corner == "\u256d" {
+		return "\u256e"
 	}
 
-	return "╯"
+	return "\u256f"
 }
 
 func TestSidebarLinesFitWide(t *testing.T) {
