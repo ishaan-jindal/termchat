@@ -176,7 +176,7 @@ func StartServer(addr string) error {
 	return server.ListenAndServe()
 }
 
-func handleDiscover(w http.ResponseWriter, r *http.Request) {
+func handleDiscover(w http.ResponseWriter, _ *http.Request) {
 	var roomList []shared.RoomInfo
 
 	roomsMutex.RLock()

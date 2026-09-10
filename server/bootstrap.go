@@ -74,7 +74,7 @@ func latestCLIVersion() string {
 	return cachedCLIVersion
 }
 
-func createRoomHandler(w http.ResponseWriter, r *http.Request) {
+func createRoomHandler(w http.ResponseWriter, _ *http.Request) {
 	renderBootstrapScript(w, shared.GenerateRoomCode())
 }
 
@@ -88,7 +88,7 @@ func joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	renderBootstrapScript(w, room)
 }
 
-func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
+func windowsCreateRoomHandler(w http.ResponseWriter, _ *http.Request) {
 	renderWindowsBootstrap(w, shared.GenerateRoomCode())
 }
 
