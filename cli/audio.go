@@ -430,7 +430,6 @@ type VoiceSession struct {
 	playerName string
 
 	sentFrames atomic.Uint64
-	recvFrames atomic.Uint64
 
 	lastSent atomic.Int64 // unix millis of the last voiced outbound chunk
 	lastRecv atomic.Int64 // unix millis of the last voiced inbound chunk
@@ -553,35 +552,6 @@ func (s *VoiceSession) startPlayout() error {
 	return nil
 }
 
-// playerStatus describes the playback backend for /vc diagnostics.
-func (s *VoiceSession) playerStatus() string {
-	if s.play == nil {
-		return "player: none"
-	}
-
-	state := "alive"
-
-	select {
-	case <-s.play.exited:
-		state = "dead"
-	default:
-	}
-
-	status := fmt.Sprintf("player %s %s", s.play.name, state)
-
-	tail := s.play.tail.String()
-
-	if tail != "" {
-		if len(tail) > 160 {
-			tail = "..." + tail[len(tail)-160:]
-		}
-
-		status += " - tail: " + tail
-	}
-
-	return status
-}
-
 func (s *VoiceSession) Shutdown() {
 	s.stopTx()
 
@@ -637,7 +607,6 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 			}
 
 			r.push(bytesToSamples(payload))
-			s.recvFrames.Add(1)
 			started = true
 
 		case now := <-ticker.C:

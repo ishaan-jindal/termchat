@@ -39,7 +39,6 @@ type VideoSession struct {
 	txSince  time.Time
 
 	sentFrames atomic.Uint64
-	recvFrames atomic.Uint64
 
 	lastSent atomic.Int64 // unix millis of the last outbound frame
 	lastRecv atomic.Int64 // unix millis of the last inbound frame
@@ -139,7 +138,6 @@ func (s *VideoSession) recvLoop() {
 			s.peers[id] = &videoPeerFrame{pix: pix, w: w, h: h, updated: time.Now()}
 			s.mu.Unlock()
 
-			s.recvFrames.Add(1)
 			s.lastRecv.Store(time.Now().UnixMilli())
 
 		case <-s.done:
