@@ -24,10 +24,12 @@ const sidebarTileVidH = 4
 
 // videoTile is one stream ready for the grid renderer.
 type videoTile struct {
-	nick string
-	pix  []byte // row-major RGB triples
-	w    int
-	h    int
+	nick     string
+	pix      []byte // row-major RGB triples
+	w        int
+	h        int
+	streamID uint32 // sender stream ID; zero for the local preview
+	self     bool
 }
 
 // decodeVideoFrame decodes one JPEG frame into row-major RGB triples.

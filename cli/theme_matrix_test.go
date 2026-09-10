@@ -131,33 +131,55 @@ func TestViewStatesHaveNoUnpaintedCells(t *testing.T) {
 			}
 			refitLayout(m)
 		}},
+		{"focused-stream", func(m *Model) {
+			vs := fakeVideoSession(false, solidRGB(16, 12, 30, 50, 70))
+			vs.peers[1] = &videoPeerFrame{pix: solidRGB(16, 12, 70, 30, 50), w: 16, h: 12, updated: time.Now()}
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{{Nick: "bob", Color: "#00ff00", VoiceID: 1, IsHost: true}}
+			m.focusNick = "bob"
+			refitLayout(m)
+		}},
+		{"focused-waiting", func(m *Model) {
+			m.nick = "alice"
+			m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
+			m.focusNick = "bob"
+			refitLayout(m)
+		}},
 	}
 
-	for _, s := range states {
-		for _, blink := range []bool{false, true} {
-			m := testModel()
+	for _, th := range themeNames() {
+		theme, err := resolveTheme(th)
+		if err != nil {
+			t.Fatalf("resolveTheme(%q): %v", th, err)
+		}
 
-			m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-			m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "carol", Color: "#0000ff", Text: "base message"}))
+		for _, s := range states {
+			for _, blink := range []bool{false, true} {
+				m := testModelTheme(theme)
 
-			s.build(&m)
-			m.input.Cursor.Blink = blink
+				m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+				m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "carol", Color: "#0000ff", Text: "base message"}))
 
-			view := m.View()
+				s.build(&m)
+				m.input.Cursor.Blink = blink
 
-			if idx := unpaintedRuneIndex(view); idx >= 0 {
-				start := max(idx-50, 0)
-				end := min(idx+30, len(view))
+				view := m.View()
 
-				t.Errorf("[%s blink=%v] unpainted cell at %d: %q", s.name, blink, idx, view[start:end])
-			}
+				if idx := unpaintedRuneIndex(view); idx >= 0 {
+					start := max(idx-50, 0)
+					end := min(idx+30, len(view))
 
-			bare := bareSpaceRun.FindStringIndex(view)
-			if bare != nil {
-				start := max(bare[0]-40, 0)
-				end := min(bare[1]+20, len(view))
+					t.Errorf("[%s %s blink=%v] unpainted cell at %d: %q", th, s.name, blink, idx, view[start:end])
+				}
 
-				t.Errorf("[%s blink=%v] plain spaces after reset at %d: %q", s.name, blink, bare[0], view[start:end])
+				bare := bareSpaceRun.FindStringIndex(view)
+				if bare != nil {
+					start := max(bare[0]-40, 0)
+					end := min(bare[1]+20, len(view))
+
+					t.Errorf("[%s %s blink=%v] plain spaces after reset at %d: %q", th, s.name, blink, bare[0], view[start:end])
+				}
 			}
 		}
 	}

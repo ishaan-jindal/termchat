@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -22,10 +23,14 @@ func forceColor(t *testing.T) {
 }
 
 func testModel() Model {
+	return testModelTheme(registeredTheme("dark"))
+}
+
+func testModelTheme(theme Theme) Model {
 	return NewModel(&Connection{
 		Send: make(chan Message, 32),
 		done: make(chan struct{}),
-	}, "alice", "TEST", registeredTheme("dark"))
+	}, "alice", "TEST", theme)
 }
 
 func update(t *testing.T, m Model, msg tea.Msg) (Model, tea.Cmd) {
@@ -1411,5 +1416,37 @@ func TestConnFatalMsgQuits(t *testing.T) {
 
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Errorf("cmd returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+func TestMessagesHeader(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	header := ansi.Strip(m.messagesHeader(""))
+
+	if !strings.Contains(header, "ROOM TEST") {
+		t.Errorf("header = %q, want room code", header)
+	}
+}
+
+func TestStatusHintsDropWhenNarrow(t *testing.T) {
+	forceColor(t)
+
+	wide := testModel()
+	wide, _ = update(t, wide, tea.WindowSizeMsg{Width: 120, Height: 40})
+	wide.voice = &VoiceSession{}
+
+	if bar := ansi.Strip(wide.renderStatusBar("Connected - Room X - 1 users", "")); !strings.Contains(bar, "ctrl+t") {
+		t.Errorf("wide status bar missing mic hint: %q", bar)
+	}
+
+	narrow := testModel()
+	narrow, _ = update(t, narrow, tea.WindowSizeMsg{Width: 40, Height: 24})
+	narrow.voice = &VoiceSession{}
+
+	if bar := ansi.Strip(narrow.renderStatusBar("Connected - Room X - 1 users", "")); strings.Contains(bar, "ctrl+t") {
+		t.Errorf("narrow status bar should drop hints: %q", bar)
 	}
 }

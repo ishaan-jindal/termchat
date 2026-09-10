@@ -85,7 +85,7 @@ func TestSidebarShowsVideoColumnAboveRoster(t *testing.T) {
 	m := sidebarModel(120, 40, fakeVideoSession(true, nil))
 	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
 
-	view := renderSidebar(m)
+	view := renderSidebar(m, m.viewport.Height)
 
 	if !strings.Contains(view, "VIDEO") {
 		t.Error("sidebar missing VIDEO header")
@@ -109,7 +109,7 @@ func TestSidebarTileShowsSelfCaption(t *testing.T) {
 	m := sidebarModel(120, 40, fakeVideoSession(true, nil))
 	m.nick = "alice"
 
-	view := renderSidebar(m)
+	view := renderSidebar(m, m.viewport.Height)
 
 	if !strings.Contains(view, "alice (you)") {
 		t.Error("self tile caption missing '(you)' marker")
@@ -123,7 +123,7 @@ func TestSidebarTileShowsHostFlag(t *testing.T) {
 	m := sidebarModel(120, 40, vs)
 	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00", IsHost: true, VoiceID: 1}}
 
-	view := renderSidebar(m)
+	view := renderSidebar(m, m.viewport.Height)
 
 	if !strings.Contains(view, "bob [host]") {
 		t.Errorf("peer tile caption missing host flag: %q", view)
@@ -151,7 +151,7 @@ func TestSidebarOverflowLine(t *testing.T) {
 		{Nick: "grace", Color: "#00ff00"},
 	}
 
-	view := renderSidebar(m)
+	view := renderSidebar(m, m.viewport.Height)
 
 	if !strings.Contains(view, "more on video") {
 		t.Errorf("overflow line missing when tiles exceed space: %q", view)
@@ -238,7 +238,7 @@ func assertSidebarLinesFit(t *testing.T, m Model) {
 	t.Helper()
 
 	width := m.sidebarWidth()
-	content := renderSidebar(m)
+	content := renderSidebar(m, m.viewport.Height)
 
 	for i, line := range strings.Split(content, "\n") {
 		plain := ansi.Strip(line)

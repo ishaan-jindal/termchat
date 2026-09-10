@@ -4,6 +4,10 @@
 
 ### Added
 
+- Premium UI pass: every theme carries one accent color driving the input
+  prompt and cursor block, the pinned-video panel border and the connection
+  dot. The messages panel has a slim `ROOM ...` title bar and the footer is
+  a segmented bar with dim keycap hints. (by @ishaan-jindal)
 - Unified voice/video call: `/vc` joins and leaves the room's call, attaching
   both voice and video sessions at once, starting silent and camera-off.
   `Ctrl+T` toggles the mic (push-to-talk), `Ctrl+V` toggles the camera;

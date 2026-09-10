@@ -112,6 +112,10 @@ type Model struct {
 	// shown, so the video tick can refit the layout on transitions.
 	videoColVisible bool
 
+	// focusNick is the roster nick pinned to the focus panel; empty means
+	// no focus. It is a local view preference, never sent to the server.
+	focusNick string
+
 	// VoiceDevice is the configured microphone name passed to ffmpeg.
 	VoiceDevice string
 
@@ -164,10 +168,13 @@ func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 // The textarea keeps an internal pointer to its focused/blurred style
 // captured by Focus/Blur, so it must be re-seated after the assignment.
 func (m *Model) applyInputStyles() {
-	m.input.FocusedStyle = m.theme.input
-	m.input.BlurredStyle = m.theme.input
-	m.input.Cursor.Style = m.theme.base
-	m.input.Cursor.TextStyle = m.theme.base
+	st := m.theme.input
+	st.Prompt = m.theme.accent
+	m.input.FocusedStyle = st
+	m.input.BlurredStyle = st
+	m.input.Prompt = "> "
+	m.input.Cursor.Style = m.theme.cursor
+	m.input.Cursor.TextStyle = m.theme.input.Text
 
 	focused := m.input.Focused()
 	m.input.Blur()
@@ -605,28 +612,40 @@ func (m Model) View() string {
 	scrollInfo := ""
 
 	if !m.viewport.AtTop() {
-		scrollInfo += " ^"
+		scrollInfo += "^"
 	}
 
 	if !m.viewport.AtBottom() {
-		scrollInfo += " v"
+		scrollInfo += "v"
 	}
+
+	msgView := m.viewport
+	msgView.Height = max(m.viewport.Height-1, 1)
 
 	messagesPanel := m.theme.panel.
 		Width(m.viewport.Width + 4).
 		Height(m.viewport.Height).
-		Render(m.viewport.View())
+		Render(m.messagesHeader(scrollInfo) + "\n" + msgView.View())
+
+	mainColumn := messagesPanel
+	colHeight := m.viewport.Height
+
+	if focus := m.renderFocusPanel(); focus != "" {
+		focus = restyleBareSpaces(m.theme, focus)
+		mainColumn = lipgloss.JoinVertical(lipgloss.Top, focus, messagesPanel)
+		colHeight += m.focusPanelHeight()
+	}
 
 	var content string
 
 	if m.showSidebar {
 		content = lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			messagesPanel,
-			renderSidebar(m),
+			mainColumn,
+			renderSidebar(m, colHeight),
 		)
 	} else {
-		content = messagesPanel
+		content = mainColumn
 	}
 
 	input := m.theme.panel.
@@ -688,32 +707,19 @@ func (m Model) View() string {
 		state = "Reconnecting"
 	}
 
-	statusText := fmt.Sprintf(
-		"%s - Room %s - %d users%s%s%s%s",
-		state,
-		m.room,
-		len(m.users),
-		scrollInfo,
-		voiceInfo,
-		videoInfo,
-		onVideoInfo,
-	)
+	roomInfo := fmt.Sprintf("%s - Room %s - %d users", state, m.room, len(m.users))
 
 	if m.IsHost {
-		statusText = fmt.Sprintf(
-			"SELF-HOSTED - Room %s - %s:%d - %d users%s%s%s%s",
+		roomInfo = fmt.Sprintf(
+			"SELF-HOSTED - Room %s - %s:%d - %d users",
 			m.room,
 			m.HostIP,
 			m.HostPort,
 			len(m.users),
-			scrollInfo,
-			voiceInfo,
-			videoInfo,
-			onVideoInfo,
 		)
 
 		if !m.connected {
-			statusText = fmt.Sprintf(
+			roomInfo = fmt.Sprintf(
 				"RECONNECTING - Room %s - %s:%d",
 				m.room,
 				m.HostIP,
@@ -722,13 +728,7 @@ func (m Model) View() string {
 		}
 	}
 
-	status := m.theme.panel.
-		Width(m.width - 6).
-		Render(
-			m.theme.status.
-				Width(m.width - 8).
-				Render(statusText),
-		)
+	status := m.renderStatusBar(roomInfo, voiceInfo+videoInfo+onVideoInfo)
 
 	rows := []string{content}
 
@@ -754,6 +754,10 @@ func (m Model) View() string {
 		lipgloss.Left,
 		rows...,
 	)
+
+	// Joins pad with plain spaces, so repaint stragglers with the theme
+	// background before the canvas goes on.
+	ui = restyleBareSpaces(m.theme, ui)
 
 	// The canvas paints every remaining cell (join gaps, panel margins,
 	// filler lines) so a named theme fully covers the terminal colors.
@@ -791,6 +795,63 @@ type videoPeer struct {
 	frame *videoPeerFrame
 }
 
+// renderStatusBar composes the segmented footer: an accent-dotted state
+// cluster left, dim keycap hints right. Hints shrink away on narrow
+// terminals rather than wrapping the bar.
+func (m Model) renderStatusBar(roomInfo, badges string) string {
+	inner := max(m.width-10, 10)
+
+	dot := m.theme.accent.Render("o")
+	if !m.connected {
+		dot = m.theme.hint.Render("x")
+	}
+
+	// Every literal lives inside a span so no cell is left to the terminal
+	// background. The inner style is padding-free: the outer bar applies
+	// the only padding, or nested padding would push the line over budget.
+	st := m.theme.status.Padding(0)
+	left := dot + st.Render(" "+roomInfo+badges)
+
+	var hints []string
+
+	if inVC(&m) {
+		hints = append(hints,
+			m.theme.statusKey.Render("ctrl+t")+m.theme.statusHint.Render(" mic"),
+			m.theme.statusKey.Render("ctrl+v")+m.theme.statusHint.Render(" cam"),
+		)
+	}
+
+	line := left
+
+	if len(hints) > 0 {
+		right := strings.Join(hints, m.theme.statusHint.Render(" | "))
+
+		if w := lipgloss.Width(left) + 2 + lipgloss.Width(right); w <= inner {
+			line += st.Render(strings.Repeat(" ", inner-lipgloss.Width(left)-lipgloss.Width(right))) + right
+		}
+	}
+
+	return m.theme.panel.
+		Width(m.width - 6).
+		Render(
+			m.theme.status.
+				Width(m.width - 8).
+				Render(line),
+		)
+}
+
+// messagesHeader renders the slim title bar atop the message panel: the
+// room and roster size left, scroll indicators right.
+func (m Model) messagesHeader(scrollInfo string) string {
+	left := fmt.Sprintf("ROOM %s - %d users", m.room, len(m.users))
+
+	inner := max(m.viewport.Width, 10)
+	gap := max(inner-lipgloss.Width(left)-lipgloss.Width(scrollInfo), 1)
+	line := left + strings.Repeat(" ", gap) + scrollInfo
+
+	return m.theme.hint.Render(line)
+}
+
 // activeVideoTiles snapshots the local preview plus the freshest peer
 // streams, resolving sender nicks from the room roster.
 func (m *Model) activeVideoTiles() []videoTile {
@@ -823,7 +884,7 @@ func (m *Model) activeVideoTiles() []videoTile {
 	var tiles []videoTile
 
 	if self != nil && s.tx {
-		tiles = append(tiles, videoTile{nick: m.nick + " (you)", pix: self.pix, w: self.w, h: self.h})
+		tiles = append(tiles, videoTile{nick: m.nick + " (you)", pix: self.pix, w: self.w, h: self.h, self: true})
 	}
 
 	for _, p := range peers {
@@ -831,10 +892,34 @@ func (m *Model) activeVideoTiles() []videoTile {
 			break
 		}
 
-		tiles = append(tiles, videoTile{nick: m.videoNickWithFlags(p.id), pix: p.frame.pix, w: p.frame.w, h: p.frame.h})
+		tiles = append(tiles, videoTile{nick: m.videoNickWithFlags(p.id), pix: p.frame.pix, w: p.frame.w, h: p.frame.h, streamID: p.id})
 	}
 
 	return tiles
+}
+
+// focusedVideoTile returns the focused person's tile with a FOCUSED caption,
+// or nil when the target has no live stream.
+func (m *Model) focusedVideoTile() *videoTile {
+	if m.focusNick == "" {
+		return nil
+	}
+
+	for _, tile := range m.activeVideoTiles() {
+		match := tile.self && m.focusNick == m.nick
+		if !match && !tile.self {
+			match = m.videoNick(tile.streamID) == m.focusNick
+		}
+
+		if match {
+			focused := tile
+			focused.nick += " FOCUSED"
+
+			return &focused
+		}
+	}
+
+	return nil
 }
 
 // videoNickWithFlags resolves a stream to a roster nick plus status flags,
@@ -898,6 +983,51 @@ func (m *Model) videoCamNicks() []string {
 	return out
 }
 
+// focusPanelHeight is the focus panel's total height including its border,
+// or zero when nothing is focused or the terminal is too small.
+func (m *Model) focusPanelHeight() int {
+	if m.focusNick == "" || m.height < 20 || m.viewport.Width < 20 {
+		return 0
+	}
+
+	content := m.height / 4
+	if content < 8 {
+		content = 8
+	}
+	if content > 20 {
+		content = 20
+	}
+
+	return content + 2
+}
+
+// renderFocusPanel renders the pinned focus stream large above the messages,
+// or a waiting placeholder when the target has no live stream yet.
+func (m Model) renderFocusPanel() string {
+	if m.focusPanelHeight() <= 0 {
+		return ""
+	}
+
+	inner := m.viewport.Width
+	contentH := m.focusPanelHeight() - 2
+
+	var lines []string
+
+	if tile := m.focusedVideoTile(); tile != nil {
+		lines = renderTile(*tile, inner, contentH)
+	} else {
+		lines = blankLines(inner, contentH)
+		lines[0] = tileCaption("waiting for "+m.focusNick+"...", inner)
+	}
+
+	return m.theme.panel.
+		BorderForeground(lipgloss.Color(m.theme.accentHex)).
+		BorderBackground(lipgloss.Color(m.theme.bgHex)).
+		Width(m.viewport.Width + 4).
+		Height(m.focusPanelHeight()).
+		Render(strings.Join(lines, "\n"))
+}
+
 // videoPanelHeight is the embedded panel's total height including its
 // border, or zero when the panel stays hidden. The sidebar replaces the
 // bottom panel whenever it is visible.
@@ -925,9 +1055,47 @@ func (m *Model) videoPanelHeight() int {
 	return content + 2
 }
 
-// renderSidebar paints the right column: the video column on top (bordered
-// tiles for everyone transmitting) and the users roster below, in one panel.
-func renderSidebar(m Model) string {
+// isFocusedTile reports whether a tile belongs to the pinned focus target.
+func (m *Model) isFocusedTile(t videoTile) bool {
+	if m.focusNick == "" {
+		return false
+	}
+
+	if t.self {
+		return m.focusNick == m.nick
+	}
+
+	return m.videoNick(t.streamID) == m.focusNick
+}
+
+// otherVideoTiles lists the streams shown in the OTHERS section, excluding
+// the pinned focus stream.
+func (m *Model) otherVideoTiles() []videoTile {
+	tiles := m.activeVideoTiles()
+	if m.focusNick == "" {
+		return tiles
+	}
+
+	out := make([]videoTile, 0, len(tiles))
+	for _, t := range tiles {
+		if !m.isFocusedTile(t) {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
+// sectionHeader renders a centered sidebar header.
+func sectionHeader(m Model, label string, inner int) string {
+	return m.theme.usersHeader.Width(inner).Align(lipgloss.Center).Render(label)
+}
+
+// renderSidebar paints the right column: the OTHERS video tiles, the focused
+// roster entry (if any) and the users roster, in one panel. height is the
+// column's total height so the sidebar matches the main column when a focus
+// panel is stacked above the messages.
+func renderSidebar(m Model, height int) string {
 	// The panel's border and padding add 2 cells to whatever Width is
 	// requested, so back out 2 to land exactly on the reserved sidebar width.
 	panelW := m.sidebarWidth() - 2
@@ -949,63 +1117,99 @@ func renderSidebar(m Model) string {
 	content := strings.Join(lines, "\n")
 	return m.theme.panel.
 		Width(panelW).
-		Height(m.viewport.Height).
+		Height(height).
 		Render(content)
 }
 
-// renderRoster builds the USERS section: header, rule, blank, then nick
-// rows. It returns the rows so the video column can borrow height above.
+// rosterRow renders one nick line.
+func rosterRow(m Model, user UserInfo, inner int, camSet map[string]bool) string {
+	nick := user.Nick
+	if m.compactMode && len(nick) > 8 {
+		nick = nick[:8]
+	}
+
+	joined := relativeTime(user.JoinedAt - m.clockOffset)
+
+	status := ""
+	if user.IsHost {
+		status += "[host] "
+	}
+	if user.VoiceID != 0 {
+		status += "[VC] "
+	}
+	if camSet[user.Nick] {
+		status += "[CAM] "
+	}
+	if user.Typing {
+		status += "[...] "
+	}
+
+	coloredNick := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(user.Color)).
+		Background(m.theme.base.GetBackground()).
+		Bold(true).
+		Render("* " + nick)
+
+	line := coloredNick + m.theme.base.Render(fmt.Sprintf("%4s %s", joined, status))
+
+	return ansi.Truncate(line, inner, "")
+}
+
+// otherUsers lists the roster minus the pinned focus entry.
+func (m *Model) otherUsers() []UserInfo {
+	if m.focusNick == "" {
+		return m.users
+	}
+
+	out := make([]UserInfo, 0, len(m.users))
+	for _, u := range m.users {
+		if u.Nick != m.focusNick {
+			out = append(out, u)
+		}
+	}
+
+	return out
+}
+
+// renderRoster builds the USERS section: header, rule, the focused entry (if
+// any) under a FOCUSED label, then the remaining nick rows. It returns the
+// rows so the video column can borrow height above.
 func renderRoster(m Model, inner int, camSet map[string]bool) []string {
 	var lines []string
 
-	header := m.theme.usersHeader.Width(inner).Align(lipgloss.Center).Render("USERS")
-	lines = append(lines, header)
+	lines = append(lines, sectionHeader(m, "USERS", inner))
 	lines = append(lines, strings.Repeat("-", inner))
 	lines = append(lines, "")
 
-	for _, user := range m.users {
-		nick := user.Nick
-		if m.compactMode && len(nick) > 8 {
-			nick = nick[:8]
+	if m.focusNick != "" {
+		for _, u := range m.users {
+			if u.Nick == m.focusNick {
+				lines = append(lines, m.theme.system.Render("FOCUSED"))
+				lines = append(lines, rosterRow(m, u, inner, camSet))
+				break
+			}
 		}
+	}
 
-		joined := relativeTime(user.JoinedAt - m.clockOffset)
-
-		status := ""
-		if user.IsHost {
-			status += "[host] "
-		}
-		if user.VoiceID != 0 {
-			status += "[VC] "
-		}
-		if camSet[user.Nick] {
-			status += "[CAM] "
-		}
-		if user.Typing {
-			status += "[...] "
-		}
-
-		coloredNick := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(user.Color)).
-			Background(m.theme.base.GetBackground()).
-			Bold(true).
-			Render("* " + nick)
-
-		line := coloredNick + m.theme.base.Render(fmt.Sprintf("%4s %s", joined, status))
-		lines = append(lines, ansi.Truncate(line, inner, ""))
+	for _, u := range m.otherUsers() {
+		lines = append(lines, rosterRow(m, u, inner, camSet))
 	}
 
 	return lines
 }
 
-// renderVideoSection prepends the VIDEO column above the roster: a header,
-// bordered tiles (each 4 video lines plus a caption) and a +N overflow line,
-// stopping short of the roster floor.
+// renderVideoSection prepends the video column above the roster: a header
+// (OTHERS while a stream is pinned, VIDEO otherwise), bordered tiles and a
+// +N overflow line, stopping short of the roster floor.
 func renderVideoSection(m Model, inner, rosterFloor int, roster []string) []string {
 	var section []string
 
-	header := m.theme.usersHeader.Width(inner).Align(lipgloss.Center).Render("VIDEO")
-	section = append(section, header)
+	label := "VIDEO"
+	if m.focusNick != "" {
+		label = "OTHERS"
+	}
+
+	section = append(section, sectionHeader(m, label, inner))
 	section = append(section, strings.Repeat("-", inner))
 
 	avail := m.viewport.Height - len(roster)
@@ -1014,10 +1218,12 @@ func renderVideoSection(m Model, inner, rosterFloor int, roster []string) []stri
 	}
 	avail -= len(section)
 
-	tiles := m.activeVideoTiles()
+	tiles := m.otherVideoTiles()
 
 	tileH := sidebarTileVidH + 1 // caption + video lines
-	tileStyle := m.theme.panel.Inherit(m.theme.panel).Padding(0)
+	tileStyle := m.theme.panel.Inherit(m.theme.panel).Padding(0).
+		BorderForeground(lipgloss.Color(m.theme.borderDimHex)).
+		BorderBackground(lipgloss.Color(m.theme.bgHex))
 
 	// The nested box must stay within the outer panel's wrap budget
 	// (width - 2); the box's own border consumes 2 more cells.
@@ -1359,7 +1565,7 @@ func resizeViewport(m *Model) {
 	}
 
 	m.viewport.Height = max(
-		m.height-textareaHeight(m.input)-popupHeight-7-m.videoPanelHeight(),
+		m.height-textareaHeight(m.input)-popupHeight-7-m.videoPanelHeight()-m.focusPanelHeight(),
 		5,
 	)
 }

@@ -145,10 +145,13 @@ per-user toggles; supported names: `+1`, `-1`, `laugh`, `heart`, `wow`,
 
 ## Themes
 
-The default `system` theme keeps your terminal's own colors and adapts only
-the accents to light or dark backgrounds. Built-in named themes - `dark`,
-`light`, `dracula`, `nord`, `gruvbox` and more - force their own palette
-over the entire window, so the terminal's own colors do not show through.
+The default `system` theme adapts to light or dark backgrounds while keeping
+a terminal-native feel. Built-in named themes - `dark`, `light`, `dracula`,
+`nord`, `gruvbox` and more - force their own palette over the entire window,
+so the terminal's own colors do not show through.
+
+Every theme carries one accent color: it paints the input prompt and cursor
+block, the pinned-video panel border and the connection dot.
 
 ```bash
 termchat --theme gruvbox   # pick a theme for this session

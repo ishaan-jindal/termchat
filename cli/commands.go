@@ -85,6 +85,12 @@ func init() {
 			handler:     cmdVC,
 		},
 		{
+			name:        "/focus",
+			usage:       "/focus [@nick]",
+			description: "pin a user's video large, or clear",
+			handler:     cmdFocus,
+		},
+		{
 			name:        "/quit",
 			usage:       "/quit",
 			description: "leave termchat",
@@ -560,6 +566,53 @@ func (m *Model) joinVC() tea.Cmd {
 	trySend(m, Message{Type: "media_token"})
 	m.tokenPending = true
 	return mediaTimeoutCmd()
+}
+
+// setFocus pins the focus panel to a roster nick, or clears it. Unknown
+// nicks leave the current focus unchanged.
+func setFocus(m *Model, nick string) {
+	nick = strings.TrimPrefix(nick, "@")
+
+	if nick == "" || strings.EqualFold(nick, "off") || strings.EqualFold(nick, "none") {
+		if m.focusNick == "" {
+			return
+		}
+
+		m.focusNick = ""
+		appendFormattedMessage(m, Message{Type: "system", Text: "focus cleared"})
+		refreshLog(m)
+
+		return
+	}
+
+	for _, u := range m.users {
+		if u.Nick == nick {
+			m.focusNick = nick
+			appendFormattedMessage(m, Message{Type: "system", Text: "focused on " + nick})
+			refreshLog(m)
+
+			return
+		}
+	}
+
+	appendUI(m, "no such user: "+nick)
+}
+
+// refreshLog repaints the message viewport from the rendered lines, used by
+// slash commands that append system lines outside the incoming path.
+func refreshLog(m *Model) {
+	m.viewport.SetContent(strings.Join(renderedLines(m), "\n"))
+	m.viewport.GotoBottom()
+}
+
+func cmdFocus(m *Model, args []string) (bool, bool) {
+	if len(args) < 1 {
+		setFocus(m, "")
+	} else {
+		setFocus(m, args[0])
+	}
+
+	return true, false
 }
 
 // leaveVC tears down both sides of the call and frees the shared conn.
