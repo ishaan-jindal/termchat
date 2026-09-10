@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func solidNRGBA(w, h int, c color.NRGBA) *image.NRGBA {
@@ -142,7 +144,7 @@ func TestRenderVideoTilesCapsStreams(t *testing.T) {
 		tiles = append(tiles, videoTile{nick: nick, pix: solidRGB(4, 4, 9, 9, 9), w: 4, h: 4})
 	}
 
-	lines := renderVideoTiles(tiles, 40, 20)
+	lines := renderVideoTiles(tiles, 40, 20, registeredTheme("dark"))
 	joined := strings.Join(lines, "\n")
 
 	for _, nick := range []string{"a", "b", "c", "d"} {
@@ -161,7 +163,7 @@ func TestRenderVideoTilesCapsStreams(t *testing.T) {
 }
 
 func TestRenderVideoTilesEmpty(t *testing.T) {
-	lines := renderVideoTiles(nil, 10, 4)
+	lines := renderVideoTiles(nil, 10, 4, registeredTheme("dark"))
 
 	if len(lines) != 4 {
 		t.Fatalf("len(lines) = %d, want 4", len(lines))
@@ -169,6 +171,70 @@ func TestRenderVideoTilesEmpty(t *testing.T) {
 
 	if strings.TrimSpace(strings.Join(lines, "")) != "" {
 		t.Error("empty grid is not blank")
+	}
+}
+
+func TestTileCaptionLine(t *testing.T) {
+	forceColor(t)
+	theme := registeredTheme("dark")
+
+	tile := videoTile{nick: "alice", color: "#ff0000", tag: "[host]"}
+	line := tileCaptionLine(tile, 20, theme)
+	plain := ansi.Strip(line)
+
+	if w := ansi.StringWidth(plain); w != 20 {
+		t.Errorf("caption width = %d, want 20: %q", w, line)
+	}
+
+	if !strings.Contains(plain, "alice [host]") {
+		t.Errorf("caption missing nick and tag: %q", plain)
+	}
+
+	if !strings.Contains(line, "38;2;255;0;0") {
+		t.Errorf("caption missing nick color: %q", line)
+	}
+
+	long := tileCaptionLine(videoTile{nick: "averylongnickname", tag: "[host]"}, 10, theme)
+	if w := ansi.StringWidth(ansi.Strip(long)); w != 10 {
+		t.Errorf("truncated caption width = %d, want 10: %q", w, long)
+	}
+
+	if strings.Contains(ansi.Strip(long), "averylongnickname") {
+		t.Errorf("caption not truncated: %q", long)
+	}
+}
+
+func TestRenderVideoFrameCenterCrop(t *testing.T) {
+	// 12x6 source in red/green/blue thirds, rendered into a tall 2x2
+	// tile: the crop keeps the green middle, dropping the sides.
+	pix := make([]byte, 12*6*3)
+	for y := 0; y < 6; y++ {
+		for x := 0; x < 12; x++ {
+			i := (y*12 + x) * 3
+			switch {
+			case x < 4:
+				pix[i], pix[i+1], pix[i+2] = 255, 0, 0
+			case x < 8:
+				pix[i], pix[i+1], pix[i+2] = 0, 255, 0
+			default:
+				pix[i], pix[i+1], pix[i+2] = 0, 0, 255
+			}
+		}
+	}
+
+	lines := renderVideoFrame(pix, 12, 6, 2, 2)
+	joined := strings.Join(lines, "\n")
+
+	if len(lines) != 2 {
+		t.Fatalf("len(lines) = %d, want 2", len(lines))
+	}
+
+	if !strings.Contains(joined, "38;2;0;255;0") {
+		t.Errorf("cropped frame missing center green: %q", joined)
+	}
+
+	if strings.Contains(joined, "38;2;255;0;0") || strings.Contains(joined, "38;2;0;0;255") {
+		t.Errorf("cropped frame leaked cropped sides: %q", joined)
 	}
 }
 

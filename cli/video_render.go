@@ -8,6 +8,8 @@ import (
 	"image/jpeg"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 const videoHalfBlock = "▀"
@@ -22,14 +24,17 @@ const maxVideoTiles = 4
 // sidebarTileVidH is the video line count inside each bordered sidebar tile.
 const sidebarTileVidH = 4
 
-// videoTile is one stream ready for the grid renderer.
+// videoTile is one stream ready for the grid renderer. color is a roster
+// hex color ("" = theme default) and tag is a trailing marker like
+// "[host]" or "(you)".
 type videoTile struct {
-	nick     string
-	pix      []byte // row-major RGB triples
-	w        int
-	h        int
-	streamID uint32 // sender stream ID; zero for the local preview
-	self     bool
+	nick  string
+	color string
+	tag   string
+	pix   []byte // row-major RGB triples
+	w     int
+	h     int
+	self  bool
 }
 
 // decodeVideoFrame decodes one JPEG frame into row-major RGB triples.
@@ -88,6 +93,8 @@ func encodeVideoFrame(pix []byte, w, h int) ([]byte, error) {
 
 // renderVideoFrame scales RGB pixels to a cols by rows cell grid and renders
 // one ANSI string per row; two source pixel rows share one half-block cell.
+// The source is center-cropped to the grid aspect first so faces never
+// stretch, matching the capture pipeline's fill behavior.
 func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int) []string {
 	if cols < 1 || rows < 1 || srcW < 1 || srcH < 1 {
 		return nil
@@ -97,7 +104,16 @@ func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int) []string {
 		return nil
 	}
 
-	scaled := scaleRGB(pix, srcW, srcH, cols, rows*2)
+	dstW, dstH := cols, rows*2
+	cw, ch := srcW, srcH
+
+	if srcW*dstH > dstW*srcH {
+		cw = max(srcH*dstW/dstH, 1)
+	} else {
+		ch = max(srcW*dstH/dstW, 1)
+	}
+
+	scaled := scaleRectRGB(pix, srcW, srcH, (srcW-cw)/2, (srcH-ch)/2, cw, ch, dstW, dstH)
 
 	return renderColorLines(scaled, cols, rows)
 }
@@ -105,36 +121,41 @@ func renderVideoFrame(pix []byte, srcW, srcH, cols, rows int) []string {
 // scaleRGB area-averages src down (or up) to dstW by dstH; empty source
 // ranges from upscaling reuse the nearest pixel instead of dividing by zero.
 func scaleRGB(pix []byte, srcW, srcH, dstW, dstH int) []byte {
+	return scaleRectRGB(pix, srcW, srcH, 0, 0, srcW, srcH, dstW, dstH)
+}
+
+// scaleRectRGB area-averages the (x0,y0,cw,ch) source rect to dstW by dstH.
+func scaleRectRGB(pix []byte, srcW, srcH, x0, y0, cw, ch, dstW, dstH int) []byte {
 	out := make([]byte, dstW*dstH*3)
 
 	for dy := 0; dy < dstH; dy++ {
-		y0 := dy * srcH / dstH
-		y1 := (dy + 1) * srcH / dstH
+		ry0 := y0 + dy*ch/dstH
+		ry1 := y0 + (dy+1)*ch/dstH
 
-		if y1 <= y0 {
-			y1 = y0 + 1
+		if ry1 <= ry0 {
+			ry1 = ry0 + 1
 		}
 
-		if y1 > srcH {
-			y1 = srcH
+		if ry1 > y0+ch {
+			ry1 = y0 + ch
 		}
 
 		for dx := 0; dx < dstW; dx++ {
-			x0 := dx * srcW / dstW
-			x1 := (dx + 1) * srcW / dstW
+			rx0 := x0 + dx*cw/dstW
+			rx1 := x0 + (dx+1)*cw/dstW
 
-			if x1 <= x0 {
-				x1 = x0 + 1
+			if rx1 <= rx0 {
+				rx1 = rx0 + 1
 			}
 
-			if x1 > srcW {
-				x1 = srcW
+			if rx1 > x0+cw {
+				rx1 = x0 + cw
 			}
 
 			var rs, gs, bs, n int
 
-			for y := y0; y < y1; y++ {
-				for x := x0; x < x1; x++ {
+			for y := ry0; y < ry1; y++ {
+				for x := rx0; x < rx1; x++ {
 					i := (y*srcW + x) * 3
 					rs += int(pix[i])
 					gs += int(pix[i+1])
@@ -242,7 +263,7 @@ func pixelateBuffer(pix []byte, w, h, depth int) []byte {
 // renderVideoTiles renders up to maxVideoTiles streams into a cols-wide,
 // rows-high block: one caption line plus video lines per tile, joined
 // horizontally and padded with blanks.
-func renderVideoTiles(tiles []videoTile, cols, rows int) []string {
+func renderVideoTiles(tiles []videoTile, cols, rows int, theme Theme) []string {
 	if cols < 1 || rows < 1 {
 		return nil
 	}
@@ -266,7 +287,7 @@ func renderVideoTiles(tiles []videoTile, cols, rows int) []string {
 	tileLines := make([][]string, 0, len(tiles))
 
 	for _, tile := range tiles {
-		tileLines = append(tileLines, renderTile(tile, tileW, tileH))
+		tileLines = append(tileLines, renderTile(tile, tileW, tileH, theme))
 	}
 
 	for len(tileLines) < tcols*trows {
@@ -287,7 +308,7 @@ func renderVideoTiles(tiles []videoTile, cols, rows int) []string {
 			rest := cols - tcols*tileW
 
 			if rest > 0 {
-				line += strings.Repeat(" ", rest)
+				line += theme.base.Render(strings.Repeat(" ", rest))
 			}
 
 			out = append(out, line)
@@ -297,12 +318,12 @@ func renderVideoTiles(tiles []videoTile, cols, rows int) []string {
 	return out
 }
 
-// renderTile renders one stream: a nick caption and tileH-1 video lines.
-// Pixels arrive already pixelated from the sender; rendering never alters
-// the anonymity floor.
-func renderTile(tile videoTile, tileW, tileH int) []string {
+// renderTile renders one stream: a styled nick caption and tileH-1 video
+// lines. Pixels arrive already pixelated from the sender; rendering never
+// alters the anonymity floor.
+func renderTile(tile videoTile, tileW, tileH int, theme Theme) []string {
 	out := make([]string, 0, tileH)
-	out = append(out, tileCaption(tile.nick, tileW))
+	out = append(out, tileCaptionLine(tile, tileW, theme))
 
 	vidH := tileH - 1
 
@@ -311,6 +332,55 @@ func renderTile(tile videoTile, tileW, tileH int) []string {
 	}
 
 	return append(out, renderVideoFrame(tile.pix, tile.w, tile.h, tileW, vidH)...)
+}
+
+// tileCaptionLine composes the tile caption: nick in its roster color with
+// a dim trailing tag, padded to exactly tileW with the theme background so
+// no bare spaces follow a reset.
+func tileCaptionLine(tile videoTile, tileW int, theme Theme) string {
+	tag := ""
+	if tile.tag != "" {
+		tag = " " + tile.tag
+	}
+
+	maxNick := tileW - 1 - len([]rune(tag))
+	if maxNick < 0 {
+		maxNick = 0
+	}
+
+	nick := string(truncateRunes([]rune(tile.nick), maxNick))
+
+	nickStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(tile.color)).
+		Background(theme.base.GetBackground()).
+		Bold(true)
+
+	if tile.color == "" {
+		nickStyle = theme.base
+	}
+
+	line := " " + nickStyle.Render(nick) + theme.system.Render(tag)
+	pad := tileW - 1 - len([]rune(nick)) - len([]rune(tag))
+
+	if pad > 0 {
+		line += theme.base.Render(strings.Repeat(" ", pad))
+	}
+
+	return line
+}
+
+// truncateRunes cuts runes to at most max, never splitting a multi-byte
+// sequence.
+func truncateRunes(runes []rune, max int) []rune {
+	if max < 0 {
+		max = 0
+	}
+
+	if len(runes) > max {
+		return runes[:max]
+	}
+
+	return runes
 }
 
 // tileCaption truncates the nick to the tile width; the chat view paints the

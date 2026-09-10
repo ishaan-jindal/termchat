@@ -131,19 +131,11 @@ func TestViewStatesHaveNoUnpaintedCells(t *testing.T) {
 			}
 			refitLayout(m)
 		}},
-		{"focused-stream", func(m *Model) {
-			vs := fakeVideoSession(false, solidRGB(16, 12, 30, 50, 70))
-			vs.peers[1] = &videoPeerFrame{pix: solidRGB(16, 12, 70, 30, 50), w: 16, h: 12, updated: time.Now()}
+		{"video-self-accent", func(m *Model) {
+			vs := fakeVideoSession(true, solidRGB(16, 12, 70, 30, 50))
 			m.video = vs
 			m.nick = "alice"
 			m.users = []UserInfo{{Nick: "bob", Color: "#00ff00", VoiceID: 1, IsHost: true}}
-			m.focusNick = "bob"
-			refitLayout(m)
-		}},
-		{"focused-waiting", func(m *Model) {
-			m.nick = "alice"
-			m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
-			m.focusNick = "bob"
 			refitLayout(m)
 		}},
 	}

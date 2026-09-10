@@ -151,7 +151,7 @@ a terminal-native feel. Built-in named themes - `dark`, `light`, `dracula`,
 so the terminal's own colors do not show through.
 
 Every theme carries one accent color: it paints the input prompt and cursor
-block, the pinned-video panel border and the connection dot.
+block, the self-tile accent border and the connection dot.
 
 ```bash
 termchat --theme gruvbox   # pick a theme for this session

@@ -85,7 +85,7 @@ func TestSidebarShowsVideoColumnAboveRoster(t *testing.T) {
 	m := sidebarModel(120, 40, fakeVideoSession(true, nil))
 	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
 
-	view := renderSidebar(m, m.viewport.Height)
+	view := renderSidebar(m)
 
 	if !strings.Contains(view, "VIDEO") {
 		t.Error("sidebar missing VIDEO header")
@@ -109,9 +109,9 @@ func TestSidebarTileShowsSelfCaption(t *testing.T) {
 	m := sidebarModel(120, 40, fakeVideoSession(true, nil))
 	m.nick = "alice"
 
-	view := renderSidebar(m, m.viewport.Height)
+	view := renderSidebar(m)
 
-	if !strings.Contains(view, "alice (you)") {
+	if !strings.Contains(ansi.Strip(view), "alice (you)") {
 		t.Error("self tile caption missing '(you)' marker")
 	}
 }
@@ -123,9 +123,9 @@ func TestSidebarTileShowsHostFlag(t *testing.T) {
 	m := sidebarModel(120, 40, vs)
 	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00", IsHost: true, VoiceID: 1}}
 
-	view := renderSidebar(m, m.viewport.Height)
+	view := renderSidebar(m)
 
-	if !strings.Contains(view, "bob [host]") {
+	if !strings.Contains(ansi.Strip(view), "bob [host]") {
 		t.Errorf("peer tile caption missing host flag: %q", view)
 	}
 }
@@ -151,7 +151,7 @@ func TestSidebarOverflowLine(t *testing.T) {
 		{Nick: "grace", Color: "#00ff00"},
 	}
 
-	view := renderSidebar(m, m.viewport.Height)
+	view := renderSidebar(m)
 
 	if !strings.Contains(view, "more on video") {
 		t.Errorf("overflow line missing when tiles exceed space: %q", view)
@@ -238,7 +238,7 @@ func assertSidebarLinesFit(t *testing.T, m Model) {
 	t.Helper()
 
 	width := m.sidebarWidth()
-	content := renderSidebar(m, m.viewport.Height)
+	content := renderSidebar(m)
 
 	for i, line := range strings.Split(content, "\n") {
 		plain := ansi.Strip(line)
@@ -283,7 +283,7 @@ func TestSidebarLinesFitCompact(t *testing.T) {
 func TestViewLinesMatchTerminalWidth(t *testing.T) {
 	forceColor(t)
 
-	for _, size := range [][2]int{{120, 40}, {80, 30}} {
+	for _, size := range [][2]int{{120, 40}, {80, 30}, {60, 30}} {
 		m := stressSidebarModel(size[0], size[1])
 		view := m.View()
 
