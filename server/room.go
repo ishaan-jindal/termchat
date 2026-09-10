@@ -2,6 +2,7 @@ package server
 
 import "sync"
 
+// Room holds the clients, history, and reactions for one chat room.
 type Room struct {
 	ID       string
 	Password string

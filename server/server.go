@@ -14,6 +14,7 @@ import (
 	"termchat/shared"
 )
 
+// Message and UserInfo re-export the shared protocol types.
 type (
 	Message  = shared.Message
 	UserInfo = shared.UserInfo
@@ -60,6 +61,7 @@ func Stop() {
 	}
 }
 
+// SetLogOutput redirects the server logger, discarding output on nil.
 func SetLogOutput(w io.Writer) {
 	if w == nil {
 		w = io.Discard
@@ -89,6 +91,7 @@ func newMux() *http.ServeMux {
 	return mux
 }
 
+// StartServer serves the WebSocket API on addr until Stop is called.
 func StartServer(addr string) error {
 	initBootstrapConfig()
 

@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Client is one WebSocket connection with its room and send queue.
 type Client struct {
 	Conn   *websocket.Conn
 	RoomID string
