@@ -1319,8 +1319,7 @@ func formatQuote(m *Model, msg Message, width int) string {
 	return m.theme.system.Render(quote)
 }
 
-// formatReactions renders reaction counts as emoji glyphs instead of raw
-// names, with a leading blank line separator.
+// formatReactions renders reaction counts as inline bracketed glyphs.
 func formatReactions(reactions []Reaction) string {
 	if len(reactions) == 0 {
 		return ""
