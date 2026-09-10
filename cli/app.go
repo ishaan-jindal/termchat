@@ -254,10 +254,6 @@ func (m *appModel) blurHomeInputs() {
 	m.pass.Blur()
 }
 
-func (m *appModel) liveConn() *Connection {
-	return m.conn
-}
-
 func (m appModel) Init() tea.Cmd {
 	var cmds []tea.Cmd
 

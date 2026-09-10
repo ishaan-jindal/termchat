@@ -907,13 +907,9 @@ func (m *Model) videoTileLabel(id uint32) (nick, color, tag string) {
 // videoNick resolves a stream ID to a roster nick via the ID the server
 // stamped on relayed frames.
 func (m *Model) videoNick(id uint32) string {
-	for _, u := range m.users {
-		if u.VoiceID == id {
-			return u.Nick
-		}
-	}
+	nick, _, _ := m.videoTileLabel(id)
 
-	return fmt.Sprintf("cam-%d", id)
+	return nick
 }
 
 // videoCamNicks lists roster nicks with a live stream, for the sidebar.
