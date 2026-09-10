@@ -1,5 +1,6 @@
 package shared
 
+// Message is one WebSocket frame between client and server.
 type Message struct {
 	ID          int64      `json:"id"`
 	Type        string     `json:"type"`
@@ -23,6 +24,7 @@ type Message struct {
 	Users      []UserInfo `json:"users,omitempty"`
 }
 
+// Reaction counts the votes for one reaction name on a message.
 type Reaction struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
@@ -31,6 +33,7 @@ type Reaction struct {
 // ReactionNames is the fixed set of reaction names a client may send.
 var ReactionNames = []string{"+1", "-1", "laugh", "heart", "wow", "eyes", "fire", "clap"}
 
+// IsValidReaction reports whether name is a sendable reaction.
 func IsValidReaction(name string) bool {
 	for _, n := range ReactionNames {
 		if n == name {
@@ -41,6 +44,7 @@ func IsValidReaction(name string) bool {
 	return false
 }
 
+// UserInfo describes one room member in a users_list frame.
 type UserInfo struct {
 	Nick     string `json:"nick"`
 	Color    string `json:"color"`

@@ -37,8 +37,11 @@ const (
 	// MediaHeaderLen is the frame header size: kind, codec, voice ID.
 	MediaHeaderLen = 6
 
-	AudioSampleRate   = 16000
-	AudioChannels     = 1
+	// AudioSampleRate is the capture and playback rate in Hz.
+	AudioSampleRate = 16000
+	// AudioChannels is the voice stream channel count.
+	AudioChannels = 1
+	// AudioChunkSamples is the sample count per capture chunk.
 	AudioChunkSamples = 640 // 40 ms at AudioSampleRate
 )
 

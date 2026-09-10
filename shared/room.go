@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// GenerateRoomCode returns a random room code from RoomCodeCharset.
 func GenerateRoomCode() string {
 	out := make([]byte, RoomCodeLength)
 
@@ -29,6 +30,7 @@ func GenerateRoomCode() string {
 	return string(out)
 }
 
+// NormalizeRoomCode uppercases room and trims surrounding spaces.
 func NormalizeRoomCode(room string) string {
 	return strings.ToUpper(strings.TrimSpace(room))
 }
