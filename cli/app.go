@@ -163,7 +163,7 @@ func newAppModel(o hubOptions) appModel {
 	pass.SetValue(o.password)
 
 	sp := spinner.New()
-	sp.Style = o.theme.system
+	sp.Style = o.theme.accent
 
 	m := appModel{
 		serverURL: o.serverURL,
@@ -252,10 +252,6 @@ func (m *appModel) blurHomeInputs() {
 	m.room.Blur()
 	m.nick.Blur()
 	m.pass.Blur()
-}
-
-func (m *appModel) liveConn() *Connection {
-	return m.conn
 }
 
 func (m appModel) Init() tea.Cmd {
@@ -535,7 +531,7 @@ func (m *appModel) cycleTheme() {
 	m.theme = theme
 	m.cfg.Theme = next
 	saveConfig(m.cfg)
-	m.spin.Style = theme.system
+	m.spin.Style = theme.accent
 	m.applyHubInputStyles()
 }
 
@@ -604,8 +600,7 @@ func (m *appModel) rescan() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// prepIdentity validates the room and nickname fields, mirroring the old
-// startup prompt defaults (blank nick falls back to anonymous).
+// prepIdentity validates the room and nickname fields, defaulting blank nick to anonymous.
 func (m *appModel) prepIdentity() (string, string, bool) {
 	room := shared.NormalizeRoomCode(strings.TrimSpace(m.room.Value()))
 	if room == "" {
@@ -713,6 +708,7 @@ func (m appModel) enterChat(conn *Connection) (tea.Model, tea.Cmd) {
 	chat.serverURL = m.serverURL
 	chat.color = m.cfg.Color
 	chat.VoiceDevice = m.cfg.VoiceDevice
+	chat.CameraDevice = m.cfg.CameraDevice
 
 	if m.hostMode {
 		chat.IsHost = true
@@ -806,7 +802,7 @@ func (m appModel) viewHome() string {
 // viewHubHeader renders the title bar: termchat left, version and theme
 // right, padded to the full width.
 func (m appModel) viewHubHeader(width int) string {
-	left := m.theme.base.Bold(true).Render("termchat")
+	left := m.theme.accent.Render("termchat")
 	right := m.theme.system.Render(hubVersion() + " - " + m.theme.Name)
 
 	gap := max(width-lipgloss.Width(left)-lipgloss.Width(right), 1)
@@ -983,7 +979,7 @@ func (m appModel) hubRowLine(left, meta string, selected bool, width int) string
 	line := plain + strings.Repeat(" ", gap) + meta
 
 	if selected {
-		return m.theme.completionSelected.Width(width).Render(line)
+		return m.theme.accentBg.Width(width).Render(line)
 	}
 
 	return restyleBareSpaces(m.theme, plain+strings.Repeat(" ", gap)+m.theme.system.Render(meta))

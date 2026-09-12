@@ -1,5 +1,6 @@
 package shared
 
+// Room code shape and LAN discovery constants.
 const (
 	RoomCodeLength  = 4
 	RoomCodeCharset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

@@ -1906,6 +1906,177 @@ func TestMediaTokenIssuance(t *testing.T) {
 	}
 }
 
+func TestMediaVideoRelayReachesPeersWithStampedID(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "VIDE", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "VIDE", "bob", "")
+	defer b.close()
+
+	c := joinRoom(t, srv, "LONE", "carol", "")
+	defer c.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "VIDE")
+	defer ac.Close()
+
+	bc := dialMedia(t, srv, requestMediaToken(t, b), "VIDE")
+	defer bc.Close()
+
+	cc := dialMedia(t, srv, requestMediaToken(t, c), "LONE")
+	defer cc.Close()
+
+	b.send(shared.Message{Type: "users"})
+	list := b.nextOfType("users_list")
+
+	ids := map[string]uint32{}
+	for _, u := range list.Users {
+		ids[u.Nick] = u.VoiceID
+	}
+
+	if ids["alice"] == 0 {
+		t.Fatalf("alice has no stream ID: %v", ids)
+	}
+
+	jpeg := make([]byte, 4096)
+	jpeg[0], jpeg[1] = 0xFF, 0xD8
+	jpeg[len(jpeg)-2], jpeg[len(jpeg)-1] = 0xFF, 0xD9
+
+	frame := shared.EncodeMediaFrame(shared.MediaKindVideo, shared.MediaCodecJPEG, 0, jpeg)
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err := ac.WriteMessage(websocket.BinaryMessage, frame)
+	if err != nil {
+		t.Fatalf("send video frame: %v", err)
+	}
+
+	got, ok := nextFrame(t, bc, 5*time.Second)
+	if !ok {
+		t.Fatal("peer did not receive the relayed video frame")
+	}
+
+	kind, codec, streamID, peerPayload, ok := shared.ParseMediaFrame(got)
+	if !ok {
+		t.Fatal("relayed video frame does not parse")
+	}
+
+	if kind != shared.MediaKindVideo {
+		t.Errorf("kind = %#x, want video", kind)
+	}
+
+	if codec != shared.MediaCodecJPEG {
+		t.Errorf("codec = %#x, want JPEG", codec)
+	}
+
+	if streamID != ids["alice"] {
+		t.Errorf("streamID = %#x, want server-stamped %#x", streamID, ids["alice"])
+	}
+
+	if string(peerPayload) != string(jpeg) {
+		t.Error("payload altered in relay")
+	}
+
+	if _, ok := nextFrame(t, ac, 750*time.Millisecond); ok {
+		t.Error("sender received its own video frame")
+	}
+
+	if _, ok := nextFrame(t, cc, 750*time.Millisecond); ok {
+		t.Error("outsider received a video frame from another room")
+	}
+}
+
+func TestMediaVideoRejectsUnknownCodec(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "VIDC", "alice", "")
+	defer a.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "VIDC")
+	defer ac.Close()
+
+	frame := shared.EncodeMediaFrame(shared.MediaKindVideo, 0xFF, 0, []byte{1, 2, 3})
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	err := ac.WriteMessage(websocket.BinaryMessage, frame)
+	if err != nil {
+		t.Fatalf("send bad video frame: %v", err)
+	}
+
+	if _, ok := nextFrame(t, ac, 5*time.Second); ok {
+		t.Fatal("unknown video codec kept the media conn alive")
+	}
+
+	a.send(shared.Message{Type: "message", Text: "chat alive"})
+	echo := a.nextOfType("message")
+
+	if echo.Text != "chat alive" {
+		t.Fatalf("echo = %+v", echo)
+	}
+}
+
+func TestMediaAudioVideoShareOneConn(t *testing.T) {
+	overrideLimit(t, &mediaUpstreamBytesPerSec, 4*1024*1024)
+
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "MIXD", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "MIXD", "bob", "")
+	defer b.close()
+
+	ac := dialMedia(t, srv, requestMediaToken(t, a), "MIXD")
+	defer ac.Close()
+
+	bc := dialMedia(t, srv, requestMediaToken(t, b), "MIXD")
+	defer bc.Close()
+
+	audio := shared.EncodeMediaFrame(
+		shared.MediaKindAudio,
+		shared.MediaCodecPCM16,
+		1,
+		make([]byte, shared.AudioChunkBytes),
+	)
+	video := shared.EncodeMediaFrame(
+		shared.MediaKindVideo,
+		shared.MediaCodecJPEG,
+		1,
+		[]byte{0xFF, 0xD8, 0xFF, 0xD9},
+	)
+
+	ac.SetWriteDeadline(time.Now().Add(3 * time.Second))
+
+	for _, frame := range [][]byte{audio, video} {
+		err := ac.WriteMessage(websocket.BinaryMessage, frame)
+		if err != nil {
+			t.Fatalf("send mixed frame: %v", err)
+		}
+	}
+
+	seen := map[byte]bool{}
+
+	for range 2 {
+		got, ok := nextFrame(t, bc, 5*time.Second)
+		if !ok {
+			t.Fatalf("peer missed a mixed frame after %v", seen)
+		}
+
+		kind, _, _, _, ok := shared.ParseMediaFrame(got)
+		if !ok {
+			t.Fatal("mixed relay frame does not parse")
+		}
+
+		seen[kind] = true
+	}
+
+	if !seen[shared.MediaKindAudio] || !seen[shared.MediaKindVideo] {
+		t.Fatalf("kinds seen = %v, want audio and video", seen)
+	}
+}
+
 func TestMediaTokenExpiry(t *testing.T) {
 	overrideLimit(t, &mediaTokenTTL, 20*time.Millisecond)
 

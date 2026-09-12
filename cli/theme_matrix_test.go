@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -106,33 +107,71 @@ func TestViewStatesHaveNoUnpaintedCells(t *testing.T) {
 		{"theme-list-shown", func(m *Model) {
 			handleCommand(m, "/theme")
 		}},
+		{"video-sidebar", func(m *Model) {
+			vs := fakeVideoSession(true, solidRGB(16, 12, 30, 50, 70))
+			vs.peers[2] = &videoPeerFrame{pix: solidRGB(16, 12, 70, 30, 50), w: 16, h: 12, updated: time.Now()}
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{
+				{Nick: "alice", Color: "#ff0000", IsHost: true, Typing: true},
+				{Nick: "bob", Color: "#00ff00", VoiceID: 1},
+				{Nick: "carol", Color: "#0000ff", VoiceID: 2, Typing: true},
+			}
+			refitLayout(m)
+		}},
+		{"video-sidebar-compact", func(m *Model) {
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+			*m = updated.(Model)
+			vs := fakeVideoSession(true, solidRGB(16, 12, 30, 50, 70))
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{
+				{Nick: "alice", Color: "#ff0000", IsHost: true},
+				{Nick: "bob", Color: "#00ff00", VoiceID: 1, Typing: true},
+			}
+			refitLayout(m)
+		}},
+		{"video-self-accent", func(m *Model) {
+			vs := fakeVideoSession(true, solidRGB(16, 12, 70, 30, 50))
+			m.video = vs
+			m.nick = "alice"
+			m.users = []UserInfo{{Nick: "bob", Color: "#00ff00", VoiceID: 1, IsHost: true}}
+			refitLayout(m)
+		}},
 	}
 
-	for _, s := range states {
-		for _, blink := range []bool{false, true} {
-			m := testModel()
+	for _, th := range themeNames() {
+		theme, err := resolveTheme(th)
+		if err != nil {
+			t.Fatalf("resolveTheme(%q): %v", th, err)
+		}
 
-			m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
-			m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "carol", Color: "#0000ff", Text: "base message"}))
+		for _, s := range states {
+			for _, blink := range []bool{false, true} {
+				m := testModelTheme(theme)
 
-			s.build(&m)
-			m.input.Cursor.Blink = blink
+				m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+				m, _ = update(t, m, IncomingMessage(Message{Type: "message", ID: 1, Nick: "carol", Color: "#0000ff", Text: "base message"}))
 
-			view := m.View()
+				s.build(&m)
+				m.input.Cursor.Blink = blink
 
-			if idx := unpaintedRuneIndex(view); idx >= 0 {
-				start := max(idx-50, 0)
-				end := min(idx+30, len(view))
+				view := m.View()
 
-				t.Errorf("[%s blink=%v] unpainted cell at %d: %q", s.name, blink, idx, view[start:end])
-			}
+				if idx := unpaintedRuneIndex(view); idx >= 0 {
+					start := max(idx-50, 0)
+					end := min(idx+30, len(view))
 
-			bare := bareSpaceRun.FindStringIndex(view)
-			if bare != nil {
-				start := max(bare[0]-40, 0)
-				end := min(bare[1]+20, len(view))
+					t.Errorf("[%s %s blink=%v] unpainted cell at %d: %q", th, s.name, blink, idx, view[start:end])
+				}
 
-				t.Errorf("[%s blink=%v] plain spaces after reset at %d: %q", s.name, blink, bare[0], view[start:end])
+				bare := bareSpaceRun.FindStringIndex(view)
+				if bare != nil {
+					start := max(bare[0]-40, 0)
+					end := min(bare[1]+20, len(view))
+
+					t.Errorf("[%s %s blink=%v] plain spaces after reset at %d: %q", th, s.name, blink, bare[0], view[start:end])
+				}
 			}
 		}
 	}

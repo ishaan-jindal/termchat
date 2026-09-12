@@ -192,7 +192,8 @@ func resolvePlayer() (playerKind, error) {
 	}
 
 	if runtime.GOOS == "linux" {
-		if _, err := exec.LookPath("paplay"); err == nil {
+		_, err := exec.LookPath("paplay")
+		if err == nil {
 			return playerPaplay, nil
 		}
 	}
@@ -239,7 +240,8 @@ func playerCommand(kind playerKind) (string, []string, []byte, error) {
 		return "", nil, nil, errors.New("unknown player kind")
 	}
 
-	if _, err := exec.LookPath(bin); err != nil {
+	_, err := exec.LookPath(bin)
+	if err != nil {
 		switch kind {
 		case playerPaplay:
 			return "", nil, nil, errors.New("paplay not found")
@@ -417,8 +419,9 @@ func (mc *micCapture) stop() {
 	})
 }
 
-// VoiceSession bundles the media connection with its audio processes. All
-// methods run on the Bubble Tea update goroutine.
+// VoiceSession bundles a voice session atop the shared media connection
+// with its audio processes. All methods run on the Bubble Tea update
+// goroutine; the Model owns the conn lifecycle.
 type VoiceSession struct {
 	conn *MediaConn
 	tx   bool
@@ -429,7 +432,6 @@ type VoiceSession struct {
 	playerName string
 
 	sentFrames atomic.Uint64
-	recvFrames atomic.Uint64
 
 	lastSent atomic.Int64 // unix millis of the last voiced outbound chunk
 	lastRecv atomic.Int64 // unix millis of the last voiced inbound chunk
@@ -552,38 +554,8 @@ func (s *VoiceSession) startPlayout() error {
 	return nil
 }
 
-// playerStatus describes the playback backend for /voice diagnostics.
-func (s *VoiceSession) playerStatus() string {
-	if s.play == nil {
-		return "player: none"
-	}
-
-	state := "alive"
-
-	select {
-	case <-s.play.exited:
-		state = "dead"
-	default:
-	}
-
-	status := fmt.Sprintf("player %s %s", s.play.name, state)
-
-	tail := s.play.tail.String()
-
-	if tail != "" {
-		if len(tail) > 160 {
-			tail = "..." + tail[len(tail)-160:]
-		}
-
-		status += " - tail: " + tail
-	}
-
-	return status
-}
-
 func (s *VoiceSession) Shutdown() {
 	s.stopTx()
-	s.conn.close()
 
 	if s.play != nil {
 		s.play.stop()
@@ -606,8 +578,8 @@ func (s *VoiceSession) stopTx() {
 	s.mic = nil
 }
 
-// playoutLoop consumes inbound frames into per-speaker rings and writes one
-// mixed 40 ms chunk per tick; it is the only consumer of conn.inbox.
+// playoutLoop consumes inbound audio frames into per-speaker rings and
+// writes one mixed 40 ms chunk per tick.
 func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 	ticker := time.NewTicker(chunkDuration)
 	defer ticker.Stop()
@@ -618,7 +590,7 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 
 	for {
 		select {
-		case frame := <-s.conn.inbox:
+		case frame := <-s.conn.audio:
 			kind, codec, id, payload, ok := shared.ParseMediaFrame(frame)
 
 			if !ok || kind != shared.MediaKindAudio || codec != shared.MediaCodecPCM16 {
@@ -637,7 +609,6 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 			}
 
 			r.push(bytesToSamples(payload))
-			s.recvFrames.Add(1)
 			started = true
 
 		case now := <-ticker.C:
@@ -673,7 +644,8 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 				s.lastRecv.Store(time.Now().UnixMilli())
 			}
 
-			if _, err := stdin.Write(out); err != nil {
+			_, err := stdin.Write(out)
+			if err != nil {
 				return
 			}
 
@@ -745,7 +717,7 @@ func voiceActivityTicker() tea.Cmd {
 // unexpected capture deaths to the TUI.
 func toggleTalk(m *Model) tea.Cmd {
 	if m.voice == nil {
-		appendUI(m, "join voice first with /voice on")
+		appendUI(m, "join vc first with /vc")
 
 		return nil
 	}

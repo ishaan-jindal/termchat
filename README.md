@@ -30,18 +30,26 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Host privileges with automatic succession on host disconnect
 - Room discovery: online via `/discover`, LAN via UDP multicast beacon
 
-**Voice:**
+**Voice/Video call (`/vc`):**
 
-- Push-to-talk voice chat in the same window: `/voice on`, then `Ctrl+T`
-  toggles transmit; muting kills the capture process so the OS shows the
-  mic released
+- One command joins the room's call: `/vc` attaches both voice and video
+  sessions at once, starting silent and camera-off. `Ctrl+T` arms the mic
+  (push-to-talk), `Ctrl+V` arms the camera; muting/stopping kills the
+  capture process so the OS shows the mic/camera released
 - 16 kHz mono PCM in 40 ms chunks over a binary `/media` WebSocket,
   authenticated with single-use tokens from the control socket; playback
-  prefers `paplay` on Linux and falls back to `ffplay` elsewhere
+  uses `paplay` when available and falls back to `ffplay` (override with
+  `TERMCHAT_VOICE_PLAYER`)
 - Overlapping speakers are mixed locally per peer, with `[VC]` markers in
   the sidebar and a `VOICE [TX]` badge in the status footer
-- Requires `ffmpeg` (capture) and `ffplay` (playback) on the PATH;
-  platforms without them simply keep chat-only mode
+- Camera frames are always pixelated to chunky blocks before encoding so the
+  wire only ever carries anonymous video (no opt-out), rendered as live ANSI
+  art in a sidebar video column above the user roster with `[CAM]` markers
+  and an on-video count in the footer
+- Voice needs a player (`paplay` or `ffplay`) on the PATH; camera capture
+  needs `ffmpeg` and is Linux-only (v4l2, `/dev/video0` by default).
+  `cam_device` and `voice_device` in `~/.termchat/config.json` override
+  the defaults; platforms without them stay in chat-only mode
 
 **Terminal UI:**
 
@@ -119,16 +127,26 @@ termchat FROG --server wss://my.server/ws   # custom server
 termchat host [ROOM]      # LAN host mode (embeds the server)
 termchat host --password secret             # lock the room
 termchat FROG --host 192.168.1.42           # join a LAN host
+termchat --version                          # print version and exit
+termchat --help                             # print help and exit
 ```
 
 The hub screen lists online and LAN rooms below the join form; select one
-and press `Enter` to join it directly.
+and press `Enter` to join it directly. Hub keys: `Tab` moves focus,
+`Up`/`Down` select, `Ctrl+R` rescans, `Ctrl+H` hosts, `Ctrl+T` cycles
+themes.
 
-In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #HEX`,
+In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #RRGGBB`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
-(react to a message), `/voice on|off` (voice session; `Ctrl+T` toggles
-transmit), `/quit`.
+(react to a message), `/vc [on|off]` (bare `/vc` toggles; join/leave the
+voice+video call), `/quit`. In the room `Ctrl+T` toggles the mic and
+`Ctrl+V` toggles the camera.
+
+In-room keys: `PgUp`/`PgDn` scroll, `Tab` accepts completion, `Esc`
+dismisses, `Up`/`Down` browse history, `Alt+Enter` inserts a newline,
+`Ctrl+C` quits. Typing `/`, `:`, or `@` opens completion for commands,
+emoji, and mentions.
 
 Each chat message is tagged with its ID (e.g. `#7 bob: hello world`), so
 `/reply 7 ...` quotes it and `/react 7 +1` reacts to it. Reactions are
@@ -137,10 +155,13 @@ per-user toggles; supported names: `+1`, `-1`, `laugh`, `heart`, `wow`,
 
 ## Themes
 
-The default `system` theme keeps your terminal's own colors and adapts only
-the accents to light or dark backgrounds. Built-in named themes - `dark`,
-`light`, `dracula`, `nord`, `gruvbox` and more - force their own palette
-over the entire window, so the terminal's own colors do not show through.
+The default `system` theme adapts to light or dark backgrounds while keeping
+a terminal-native feel. Built-in named themes (`dark`, `light`, `dracula`,
+`nord`, `gruvbox`) force their own palette over the entire window,
+so the terminal's own colors do not show through.
+
+Every theme carries one accent color: it paints the input prompt and cursor
+block, the self-tile accent border and the connection dot.
 
 ```bash
 termchat --theme gruvbox   # pick a theme for this session
@@ -191,6 +212,11 @@ https://termchat.sacred99.online/7WHB
 - Binary-name whitelist on `/bin/{binary}` redirects
 - Voice sessions require single-use tokens bound to the chat connection,
   with per-connection frame-size and bandwidth caps on `/media`
+- Video rides the same `/media` socket with the same token auth; frames are
+  capped at 128 KB each and the shared per-connection upstream budget is
+  512 KB/s. The camera only transmits while armed with `Ctrl+V`, frames are
+  never stored, and disabling kills the capture process so the OS releases
+  the camera
 
 Recommended future hardening: global + per-room rate limits, join
 throttling, profanity / spam filtering, abuse detection.

@@ -74,7 +74,7 @@ func latestCLIVersion() string {
 	return cachedCLIVersion
 }
 
-func createRoomHandler(w http.ResponseWriter, r *http.Request) {
+func createRoomHandler(w http.ResponseWriter, _ *http.Request) {
 	renderBootstrapScript(w, shared.GenerateRoomCode())
 }
 
@@ -88,7 +88,7 @@ func joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	renderBootstrapScript(w, room)
 }
 
-func windowsCreateRoomHandler(w http.ResponseWriter, r *http.Request) {
+func windowsCreateRoomHandler(w http.ResponseWriter, _ *http.Request) {
 	renderWindowsBootstrap(w, shared.GenerateRoomCode())
 }
 
@@ -142,7 +142,8 @@ func renderScript(w http.ResponseWriter, script, room string) {
 
 	var out bytes.Buffer
 
-	if err := tmpl.Execute(&out, data); err != nil {
+	err = tmpl.Execute(&out, data)
+	if err != nil {
 		http.Error(w, "failed to render bootstrap script", http.StatusInternalServerError)
 		return
 	}
@@ -183,7 +184,8 @@ func fetchLatestCLIVersion() string {
 
 	var r release
 
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+	err = json.NewDecoder(resp.Body).Decode(&r)
+	if err != nil {
 		logger.Println(err)
 		return ""
 	}

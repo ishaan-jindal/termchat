@@ -2,5 +2,5 @@
 
 package main
 
-func notify(title, body string) {
+func notify(_, _ string) {
 }

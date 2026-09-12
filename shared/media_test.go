@@ -46,6 +46,44 @@ func TestEncodeAudioFrameEmptyPayload(t *testing.T) {
 	}
 }
 
+func TestEncodeParseVideoFrameRoundtrip(t *testing.T) {
+	payload := []byte{0xFF, 0xD8, 0xFF, 0xD9}
+
+	frame := EncodeMediaFrame(MediaKindVideo, MediaCodecJPEG, 0x12345678, payload)
+
+	kind, codec, streamID, got, ok := ParseMediaFrame(frame)
+	if !ok {
+		t.Fatal("ParseMediaFrame rejected a valid video frame")
+	}
+
+	if kind != MediaKindVideo {
+		t.Errorf("kind = %#x, want %#x", kind, MediaKindVideo)
+	}
+
+	if codec != MediaCodecJPEG {
+		t.Errorf("codec = %#x, want %#x", codec, MediaCodecJPEG)
+	}
+
+	if streamID != 0x12345678 {
+		t.Errorf("streamID = %#x, want 0x12345678", streamID)
+	}
+
+	if string(got) != string(payload) {
+		t.Errorf("payload = %v, want %v", got, payload)
+	}
+}
+
+func TestEncodeMediaFrameMatchesAudioAlias(t *testing.T) {
+	payload := []byte{9, 8, 7}
+
+	a := EncodeAudioFrame(MediaKindAudio, MediaCodecPCM16, 42, payload)
+	b := EncodeMediaFrame(MediaKindAudio, MediaCodecPCM16, 42, payload)
+
+	if string(a) != string(b) {
+		t.Errorf("alias mismatch: %v vs %v", a, b)
+	}
+}
+
 func TestParseMediaFrameRejects(t *testing.T) {
 	cases := [][]byte{
 		nil,

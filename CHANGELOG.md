@@ -4,14 +4,43 @@
 
 ### Added
 
+- Premium UI pass: every theme carries one accent color driving the input
+  prompt and cursor block, the self-tile accent border and the connection
+  dot. The messages panel has a slim `ROOM ...` title bar and the footer is
+  a segmented bar with dim keycap hints. (by @ishaan-jindal)
+- Unified voice/video call: `/vc` joins and leaves the room's call, attaching
+  both voice and video sessions at once, starting silent and camera-off.
+  `Ctrl+T` toggles the mic (push-to-talk), `Ctrl+V` toggles the camera;
+  toggling kills the capture process so the OS releases the device. Joining
+  broadcasts a `NICK joined vc` system message.
+- Camera video: the webcam is streamed to room peers as baseline JPEG frames
+  over the shared `/media` socket. Every frame is pixelated to 4x4 blocks
+  before encoding, so only anonymous video leaves the sender; there is no
+  opt-out and no fullscreen view. `[CAM]` markers plus a `VIDEO [TX]` footer
+  badge with an on-video count show who is transmitting. Streams render as
+  live ANSI art in bordered sidebar tiles above the roster (embedded panel
+  on narrow terminals). Capture is Linux-only (v4l2); `cam_device` in
+  `~/.termchat/config.json` overrides the camera path. (by @ishaan-jindal)
 - Hub screen: every launch now opens one alt-screen TUI, centered in a box,
   with the join form (room, nickname, password) above the online and LAN
   room lists. Enter joins, Tab moves between the form and the lists,
   `Ctrl+R` rescans, `Ctrl+H` hosts the room on the LAN, and `Ctrl+T` cycles
   the color theme. (by @ishaan-jindal)
 
+### Changed
+
+- `/users` prints sidebar-style presence markers (`[host]`, `[VC]`) instead
+  of `(host)`, so the roster dump shows who is in the voice call.
+
+### Fixed
+
+- Media join failures now report `media` instead of `voice` (`dialing media
+  endpoint`, `media join rejected`), matching the unified `/vc` call.
+
 ### Removed
 
+- The `/voice` command is gone, replaced by the unified `/vc` call. (by
+  @ishaan-jindal)
 - The `discover` command and its `--online` / `--local` flags are gone; the
   hub always lists online and LAN rooms below the join form. (by @ishaan-jindal)
 - The pre-TUI terminal prompts (nickname, room password, `Created Room:`)
@@ -67,7 +96,7 @@
 - `/reply ID MESSAGE` quotes a message; the server resolves the quoted
   nick/text from history and the TUI renders it as a quote line. (by @ishaan-jindal)
 - `/react ID REACTION` toggles per-user reactions, rendered inline as emoji
-  like `[👍 x2]` and included in history replay. Supported names: +1, -1,
+  like `[+1 x2]` and included in history replay. Supported names: +1, -1,
   laugh, heart, wow, eyes, fire, clap. (by @ishaan-jindal)
 - Platform-specific system notifications (Linux, macOS, Windows) shown on
   new messages, plus TUI rendering for message display. (by @AaryanKumarSingh136)

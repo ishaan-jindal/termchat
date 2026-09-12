@@ -10,6 +10,46 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestAnsi256ToHex(t *testing.T) {
+	cases := map[string]string{
+		"#ff79c6": "#ff79c6",
+		"235":     "#262626",
+		"255":     "#eeeeee",
+		"16":      "#000000",
+		"231":     "#ffffff",
+		"196":     "#ff0000",
+		"nope":    "#000000",
+		"300":     "#000000",
+	}
+
+	for in, want := range cases {
+		if got := ansi256ToHex(in); got != want {
+			t.Errorf("ansi256ToHex(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Every theme must resolve the animation colors: the focus ease lerps them
+// with no fallback.
+func TestThemesResolveAnimColors(t *testing.T) {
+	for _, name := range themeNames() {
+		theme, err := resolveTheme(name)
+		if err != nil {
+			t.Fatalf("resolveTheme(%q): %v", name, err)
+		}
+
+		for label, c := range map[string]string{
+			"accent":    theme.accentHex,
+			"borderDim": theme.borderDimHex,
+			"bg":        theme.bgHex,
+		} {
+			if len(c) != 7 || c[0] != '#' {
+				t.Errorf("[%s] %s = %q, want #rrggbb", name, label, c)
+			}
+		}
+	}
+}
+
 func TestResolveThemeNamedPalettes(t *testing.T) {
 	for _, nt := range builtinThemes {
 		theme, err := resolveTheme(nt.name)
@@ -98,8 +138,10 @@ func TestResolveThemeUnknownListsValid(t *testing.T) {
 }
 
 func TestResolveThemeSystem(t *testing.T) {
-	// system keeps the terminal's own colors: the base style must not
-	// emit any SGR at all.
+	forceColor(t)
+
+	// system adapts to the terminal background but paints every role, so
+	// panels never show raw terminal colors.
 	theme, err := resolveTheme("system")
 	if err != nil {
 		t.Fatal(err)
@@ -109,8 +151,12 @@ func TestResolveThemeSystem(t *testing.T) {
 		t.Fatalf("system resolved to %q", theme.Name)
 	}
 
-	if theme.base.Render("x") != "x" {
-		t.Errorf("system base is not transparent: %q", theme.base.Render("x"))
+	if theme.base.Render("x") == "x" {
+		t.Error("system base paints nothing; every cell must carry a color")
+	}
+
+	if theme.accentHex == "" || theme.borderDimHex == "" {
+		t.Error("system must resolve animation colors for the focus ease")
 	}
 }
 
@@ -134,8 +180,8 @@ func TestSwitchToSystemDropsAllStyling(t *testing.T) {
 
 	view := m.View()
 
-	// Adaptive accents keep their own backgrounds (status bar, headers);
-	// the dark canvas and input colors must be gone entirely.
+	// The adaptive canvas paints its own backgrounds now; the dark theme's
+	// canvas and input colors must still be gone entirely.
 	if strings.Contains(view, ";48;5;235") || strings.Contains(view, "38;5;252;48") {
 		t.Errorf("system view still forces the dark canvas: %q", view)
 	}
@@ -250,13 +296,17 @@ func TestCursorUsesThemeStyles(t *testing.T) {
 	m.input.Cursor.Blink = false
 	m.input.Cursor.SetChar("x")
 
-	visible := m.input.View()
+	visible := m.input.Cursor.View()
 
-	if !strings.Contains(visible, ";48;5;235m") {
-		t.Errorf("visible cursor lost theme background: %q", visible)
+	// Bubbles reverses the cursor style for the visible block, so the block
+	// background comes from the style's foreground: it must be the accent,
+	// not the near-canvas contrast color that made the old cursor vanish.
+	if !strings.Contains(visible, "38;2;95;175;255") {
+		t.Errorf("visible cursor block is not the accent: %q", visible)
 	}
 
-	if !strings.Contains(visible, "\x1b[7;") && !strings.Contains(visible, "\x1b[7m") {
+	if !strings.Contains(visible, ";7;") && !strings.Contains(visible, ";7m") &&
+		!strings.Contains(visible, "\x1b[7;") && !strings.Contains(visible, "\x1b[7m") {
 		t.Errorf("visible cursor not reversed: %q", visible)
 	}
 }
@@ -325,13 +375,40 @@ func unpaintedRuneIndex(s string) int {
 				continue
 			}
 
-			for _, p := range strings.Split(s[i+loc[2]:i+loc[3]], ";") {
+			// Extended colors (38;5;n, 48;5;n, 38;2;r;g;b, 48;2;r;g;b)
+			// parse as units so channel values never masquerade as SGR codes.
+			params := strings.Split(s[i+loc[2]:i+loc[3]], ";")
+
+			for k := 0; k < len(params); k++ {
+				p := params[k]
+
 				switch p {
 				case "", "0", "49":
 					bg = false
 				case "40", "41", "42", "43", "44", "45", "46", "47",
-					"100", "101", "102", "103", "104", "105", "106", "107", "48":
+					"100", "101", "102", "103", "104", "105", "106", "107":
 					bg = true
+				case "38", "48":
+					// Foreground forms leave the background state alone;
+					// background forms set it. Channel values are skipped so
+					// they never masquerade as SGR codes.
+					set := p == "48"
+
+					if k+1 < len(params) && params[k+1] == "5" {
+						if set {
+							bg = true
+						}
+
+						k++
+					} else if k+1 < len(params) && params[k+1] == "2" {
+						if set {
+							bg = true
+						}
+
+						k += 3
+					} else if set {
+						bg = true
+					}
 				}
 			}
 

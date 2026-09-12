@@ -128,7 +128,7 @@ func main() {
 	var live *Connection
 
 	if fm, ok := finalModel.(appModel); ok {
-		live = fm.liveConn()
+		live = fm.conn
 	}
 
 	if live == nil {

@@ -68,7 +68,7 @@ func fetchOnlineRooms(apiURL string) ([]shared.RoomInfo, error) {
 
 	err = json.Unmarshal(body, &rooms)
 	if err != nil {
-		return nil, fmt.Errorf("Error parsing response: %w", err)
+		return nil, fmt.Errorf("parsing discovery response: %w", err)
 	}
 
 	return rooms, nil

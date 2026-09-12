@@ -16,11 +16,14 @@ import (
 var (
 	mediaTokenTTL = 30 * time.Second
 
-	mediaPongWait            = 30 * time.Second
-	mediaPingPeriod          = 10 * time.Second
-	maxMediaFrameSize        = int64(16384)
-	mediaUpstreamBytesPerSec = 128 * 1024
-	mediaSendBuffer          = 64
+	mediaPongWait     = 30 * time.Second
+	mediaPingPeriod   = 10 * time.Second
+	mediaSendBuffer   = 64
+	maxMediaFrameSize = int64(256 * 1024)
+
+	// The upstream budget covers audio and video together: one JPEG frame
+	// can exceed the old audio-only budget on its own.
+	mediaUpstreamBytesPerSec = 512 * 1024
 )
 
 const mediaTokenBytes = 16
@@ -45,7 +48,8 @@ func resetMediaTokens() {
 func issueMediaToken(client *Client) string {
 	buf := make([]byte, mediaTokenBytes)
 
-	if _, err := rand.Read(buf); err != nil {
+	_, err := rand.Read(buf)
+	if err != nil {
 		logger.Println("issuing media token:", err)
 		return ""
 	}
@@ -87,7 +91,7 @@ type mediaConn struct {
 	send      chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
-	voiceID   uint32
+	streamID  uint32
 }
 
 func (m *mediaConn) close() {
@@ -108,38 +112,39 @@ func (m *mediaConn) trySend(frame []byte) bool {
 	}
 }
 
-// mediaHub tracks active voice connections per client. Its mutex is a leaf:
+// mediaHub tracks active media connections per client. Its mutex is a leaf:
 // never hold it while acquiring room or client locks.
 type mediaHub struct {
-	mu    sync.Mutex
-	conns map[*Client]*mediaConn
-	voice map[uint32]*Client
+	mu      sync.Mutex
+	conns   map[*Client]*mediaConn
+	streams map[uint32]*Client
 }
 
 var hub = &mediaHub{
-	conns: map[*Client]*mediaConn{},
-	voice: map[uint32]*Client{},
+	conns:   map[*Client]*mediaConn{},
+	streams: map[uint32]*Client{},
 }
 
 func resetMediaHub() {
 	hub.mu.Lock()
 	hub.conns = map[*Client]*mediaConn{}
-	hub.voice = map[uint32]*Client{}
+	hub.streams = map[uint32]*Client{}
 	hub.mu.Unlock()
 }
 
 func randomUint32() uint32 {
 	var buf [4]byte
 
-	if _, err := rand.Read(buf[:]); err != nil {
+	_, err := rand.Read(buf[:])
+	if err != nil {
 		return 0
 	}
 
 	return binary.BigEndian.Uint32(buf[:])
 }
 
-// register admits a client's voice connection and assigns a unique nonzero
-// voice ID. It reports false when the client already has a voice session or
+// register admits a client's media connection and assigns a unique nonzero
+// stream ID. It reports false when the client already has a media session or
 // no unique ID could be generated.
 func (h *mediaHub) register(client *Client, conn *websocket.Conn) (*mediaConn, bool) {
 	h.mu.Lock()
@@ -156,19 +161,19 @@ func (h *mediaHub) register(client *Client, conn *websocket.Conn) (*mediaConn, b
 			continue
 		}
 
-		if _, taken := h.voice[id]; taken {
+		if _, taken := h.streams[id]; taken {
 			continue
 		}
 
 		mc := &mediaConn{
-			client:  client,
-			conn:    conn,
-			send:    make(chan []byte, mediaSendBuffer),
-			done:    make(chan struct{}),
-			voiceID: id,
+			client:   client,
+			conn:     conn,
+			send:     make(chan []byte, mediaSendBuffer),
+			done:     make(chan struct{}),
+			streamID: id,
 		}
 		h.conns[client] = mc
-		h.voice[id] = client
+		h.streams[id] = client
 
 		return mc, true
 	}
@@ -176,7 +181,7 @@ func (h *mediaHub) register(client *Client, conn *websocket.Conn) (*mediaConn, b
 	return nil, false
 }
 
-// remove detaches the client's voice session if present; it is silent so
+// remove detaches the client's media session if present; it is silent so
 // callers decide when to broadcast the cleared voice flag.
 func (h *mediaHub) remove(client *Client) {
 	h.mu.Lock()
@@ -185,7 +190,7 @@ func (h *mediaHub) remove(client *Client) {
 
 	if ok {
 		delete(h.conns, client)
-		delete(h.voice, mc.voiceID)
+		delete(h.streams, mc.streamID)
 	}
 
 	h.mu.Unlock()
@@ -268,7 +273,8 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	var join Message
 
-	if err := conn.ReadJSON(&join); err != nil || join.Type != "join" || join.Token == "" {
+	err = conn.ReadJSON(&join)
+	if err != nil || join.Type != "join" || join.Token == "" {
 		conn.Close()
 		return
 	}
@@ -321,7 +327,7 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client.mu.Lock()
-	client.VoiceID = mc.voiceID
+	client.VoiceID = mc.streamID
 	client.mu.Unlock()
 
 	conn.SetReadLimit(maxMediaFrameSize)
@@ -335,7 +341,7 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	broadcastToRoom(client.RoomID, Message{
 		Type: "system",
-		Text: client.nickname() + " joined voice chat",
+		Text: client.nickname() + " joined vc",
 	})
 
 	// The ack goes out before the write pump starts so this conn keeps
@@ -363,7 +369,7 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 			if inRoom && wasInVoice {
 				broadcastToRoom(client.RoomID, Message{
 					Type: "system",
-					Text: client.nickname() + " left voice chat",
+					Text: client.nickname() + " left vc",
 				})
 			}
 		}
@@ -374,9 +380,10 @@ func handleMediaWebSocket(w http.ResponseWriter, r *http.Request) {
 	mediaReadPump(mc)
 }
 
-// mediaReadPump validates inbound frames, stamps the sender's voice ID over
-// whatever the client wrote there, and relays to room peers. It runs on the
-// handler goroutine; its exit tears the voice session down via defer.
+// mediaReadPump validates inbound frames, stamps the sender's stream ID
+// over whatever the client wrote there, and relays to room peers. Audio and
+// baseline-JPEG video are relayed; anything else drops the connection. It
+// runs on the handler goroutine; its exit tears the session down via defer.
 func mediaReadPump(mc *mediaConn) {
 	livePumps.Add(1)
 	defer livePumps.Add(-1)
@@ -405,13 +412,26 @@ func mediaReadPump(mc *mediaConn) {
 			return
 		}
 
-		kind, _, _, _, ok := shared.ParseMediaFrame(frame)
+		kind, codec, _, _, ok := shared.ParseMediaFrame(frame)
 
-		if !ok || kind != shared.MediaKindAudio {
+		if !ok {
 			return
 		}
 
-		binary.BigEndian.PutUint32(frame[2:shared.MediaHeaderLen], mc.voiceID)
+		switch kind {
+		case shared.MediaKindAudio:
+			if codec != shared.MediaCodecPCM16 {
+				return
+			}
+		case shared.MediaKindVideo:
+			if codec != shared.MediaCodecJPEG {
+				return
+			}
+		default:
+			return
+		}
+
+		binary.BigEndian.PutUint32(frame[2:shared.MediaHeaderLen], mc.streamID)
 
 		hub.relay(mc.client, frame)
 	}
