@@ -183,7 +183,8 @@ func matchSuggestions(value string, users []UserInfo, nick string) ([]suggestion
 		parts := strings.Split(value, " ")
 
 		if len(parts) == 3 {
-			if _, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			_, err := strconv.ParseInt(parts[1], 10, 64)
+			if err == nil {
 				return reactionSuggestions(parts[2]), len(parts[2])
 			}
 		}

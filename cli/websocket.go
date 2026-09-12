@@ -23,6 +23,7 @@ const (
 	maxReconnectBackoff = 30 * time.Second
 )
 
+// Connection is the chat WebSocket with its write queue.
 type Connection struct {
 	conn     *websocket.Conn
 	base     string        // server URL without the /ws suffix

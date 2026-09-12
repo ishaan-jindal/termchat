@@ -403,11 +403,7 @@ func writePump(client *Client) {
 	for {
 		select {
 
-		case msg, ok := <-client.Send:
-			if !ok {
-				return
-			}
-
+		case msg := <-client.Send:
 			err := client.Conn.WriteJSON(msg)
 			if err != nil {
 				logger.Println(err)

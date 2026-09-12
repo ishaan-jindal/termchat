@@ -45,8 +45,10 @@ type chatLine struct {
 	rendered string
 }
 
+// IncomingMessage is one server frame delivered to the TUI.
 type IncomingMessage Message
 
+// Model is the chat screen state.
 type Model struct {
 	conn *Connection
 
@@ -127,6 +129,7 @@ type Model struct {
 	pendingCmd tea.Cmd
 }
 
+// NewModel builds the chat screen for one joined room.
 func NewModel(conn *Connection, nick string, room string, theme Theme) Model {
 	ti := textarea.New()
 

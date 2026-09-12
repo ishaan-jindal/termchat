@@ -27,8 +27,7 @@ type videoPeerFrame struct {
 	updated time.Time
 }
 
-// VideoSession bundles a video session atop the shared media connection.
-// The Model owns the conn lifecycle; Shutdown only stops local processes.
+// VideoSession is the video side of a call atop the shared media conn.
 type VideoSession struct {
 	conn *MediaConn
 	tx   bool
@@ -48,8 +47,7 @@ type VideoSession struct {
 	self  *videoPeerFrame // looped-back local preview while transmitting
 }
 
-// startVideoSession attaches a video session to the shared media conn and
-// starts the camera; a dead camera still leaves watch mode running.
+// startVideoSession attaches a video session in watch mode; the camera stays off until toggled.
 func (m *Model) startVideoSession() tea.Cmd {
 	vs := &VideoSession{
 		conn:  m.media,
@@ -149,6 +147,7 @@ func (s *VideoSession) recvLoop() {
 	}
 }
 
+// evictOldest drops the least-recently-updated peer; the caller holds s.mu.
 func (s *VideoSession) evictOldest() {
 	var oldest uint32
 	var oldestTime time.Time
@@ -186,6 +185,12 @@ func pumpCamera(s *VideoSession, cam *camCapture) {
 	br := bufio.NewReader(cam.stdout)
 
 	for {
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+
 		raw, err := nextJPEG(br)
 		if err != nil {
 			return
@@ -212,9 +217,19 @@ func pumpCamera(s *VideoSession, cam *camCapture) {
 		}
 
 		frame := shared.EncodeMediaFrame(shared.MediaKindVideo, shared.MediaCodecJPEG, 0, jpeg)
-		s.conn.trySend(frame)
+		ok := s.conn.trySend(frame)
 		s.sentFrames.Add(1)
 		s.lastSent.Store(time.Now().UnixMilli())
+
+		if !ok {
+			select {
+			case <-s.done:
+				return
+			case <-s.conn.done:
+				return
+			default:
+			}
+		}
 
 		s.mu.Lock()
 		s.self = &videoPeerFrame{pix: pix, w: w, h: h, updated: time.Now()}

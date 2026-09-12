@@ -30,17 +30,7 @@ type palette struct {
 	hint       string
 }
 
-// namedPalette pairs a display name with its color roles; the slice order is
-// what /theme and error messages show.
-//
-// Adding a theme: append an entry here with every role filled in. Values
-// accept ANSI 256 indices ("235") or hex ("#bd93f9"). Roles:
-//
-//	bg/fg - window canvas          dim - system lines, reactions, quotes
-//	mention* - @mention block      border - panel frames
-//	status* - footer bar           selectedBg - autocomplete selection
-//	header* - sidebar title        accent/accentFg - active highlights
-//	borderDim - idle panel frames  hint - dim keycap text
+// namedPalette pairs a display name with its color roles in /theme order.
 type namedPalette struct {
 	name    string
 	palette palette
@@ -171,12 +161,11 @@ func lookupPalette(name string) (palette, bool) {
 	return palette{}, false
 }
 
-// registeredTheme builds a theme by registry name; only known-good constant
-// names reach this.
+// registeredTheme builds a theme by registry name, falling back to dark.
 func registeredTheme(name string) Theme {
 	p, ok := lookupPalette(name)
 	if !ok {
-		panic("unregistered theme " + name)
+		p, _ = lookupPalette("dark")
 	}
 
 	return buildTheme(name, p)
@@ -342,9 +331,7 @@ func buildTheme(name string, p palette) Theme {
 	return t
 }
 
-// Theme resolves a palette into the styles used across the TUI. base carries
-// the theme background so every rendered cell can be painted explicitly;
-// canvas sizes it to the full terminal in View.
+// Theme is the resolved style set used across the TUI.
 type Theme struct {
 	Name               string
 	base               lipgloss.Style

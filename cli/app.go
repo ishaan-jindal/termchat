@@ -600,8 +600,7 @@ func (m *appModel) rescan() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// prepIdentity validates the room and nickname fields, mirroring the old
-// startup prompt defaults (blank nick falls back to anonymous).
+// prepIdentity validates the room and nickname fields, defaulting blank nick to anonymous.
 func (m *appModel) prepIdentity() (string, string, bool) {
 	room := shared.NormalizeRoomCode(strings.TrimSpace(m.room.Value()))
 	if room == "" {

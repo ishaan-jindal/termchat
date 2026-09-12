@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 )
 
+// Config is the persisted user settings in ~/.termchat/config.json.
 type Config struct {
 	Nick         string `json:"nick"`
 	Color        string `json:"color"`

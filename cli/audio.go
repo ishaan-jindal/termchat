@@ -192,7 +192,8 @@ func resolvePlayer() (playerKind, error) {
 	}
 
 	if runtime.GOOS == "linux" {
-		if _, err := exec.LookPath("paplay"); err == nil {
+		_, err := exec.LookPath("paplay")
+		if err == nil {
 			return playerPaplay, nil
 		}
 	}
@@ -239,7 +240,8 @@ func playerCommand(kind playerKind) (string, []string, []byte, error) {
 		return "", nil, nil, errors.New("unknown player kind")
 	}
 
-	if _, err := exec.LookPath(bin); err != nil {
+	_, err := exec.LookPath(bin)
+	if err != nil {
 		switch kind {
 		case playerPaplay:
 			return "", nil, nil, errors.New("paplay not found")
@@ -642,7 +644,8 @@ func (s *VoiceSession) playoutLoop(stdin io.WriteCloser) {
 				s.lastRecv.Store(time.Now().UnixMilli())
 			}
 
-			if _, err := stdin.Write(out); err != nil {
+			_, err := stdin.Write(out)
+			if err != nil {
 				return
 			}
 

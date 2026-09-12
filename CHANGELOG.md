@@ -32,6 +32,11 @@
 - `/users` prints sidebar-style presence markers (`[host]`, `[VC]`) instead
   of `(host)`, so the roster dump shows who is in the voice call.
 
+### Fixed
+
+- Media join failures now report `media` instead of `voice` (`dialing media
+  endpoint`, `media join rejected`), matching the unified `/vc` call.
+
 ### Removed
 
 - The `/voice` command is gone, replaced by the unified `/vc` call. (by

@@ -13,7 +13,8 @@ func GenerateRoomCode() string {
 		for {
 			var b [1]byte
 
-			if _, err := rand.Read(b[:]); err != nil {
+			_, err := rand.Read(b[:])
+			if err != nil {
 				return "FROG"
 			}
 

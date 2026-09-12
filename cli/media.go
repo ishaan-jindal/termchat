@@ -38,14 +38,14 @@ func dialMedia(base, room, token string) (*MediaConn, error) {
 
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("dialing voice endpoint: %w", err)
+		return nil, fmt.Errorf("dialing media endpoint: %w", err)
 	}
 
 	err = conn.WriteJSON(Message{Type: "join", Room: room, Token: token})
 	if err != nil {
 		conn.Close()
 
-		return nil, fmt.Errorf("joining voice session: %w", err)
+		return nil, fmt.Errorf("joining media session: %w", err)
 	}
 
 	var reply Message
@@ -54,7 +54,7 @@ func dialMedia(base, room, token string) (*MediaConn, error) {
 	if err != nil {
 		conn.Close()
 
-		return nil, fmt.Errorf("reading voice reply: %w", err)
+		return nil, fmt.Errorf("reading media reply: %w", err)
 	}
 
 	if reply.Type == "error" {
@@ -65,13 +65,13 @@ func dialMedia(base, room, token string) (*MediaConn, error) {
 
 		conn.Close()
 
-		return nil, fmt.Errorf("voice join rejected: %s", text)
+		return nil, fmt.Errorf("media join rejected: %s", text)
 	}
 
 	if reply.Type != "ok" {
 		conn.Close()
 
-		return nil, fmt.Errorf("unexpected voice reply %q", reply.Type)
+		return nil, fmt.Errorf("unexpected media reply %q", reply.Type)
 	}
 
 	mc := &MediaConn{
