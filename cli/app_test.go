@@ -518,6 +518,26 @@ func TestHubJoinCmdNickRejected(t *testing.T) {
 	}
 }
 
+func TestHubVersion(t *testing.T) {
+	original := Version
+
+	t.Cleanup(func() { Version = original })
+
+	for _, tt := range []struct {
+		version string
+		want    string
+	}{
+		{"cli-v2.3.0", "v2.3.0"},
+		{"dev", "dev"},
+	} {
+		Version = tt.version
+
+		if got := hubVersion(); got != tt.want {
+			t.Errorf("hubVersion() = %q, want %q", got, tt.want)
+		}
+	}
+}
+
 func TestHubHeaderFooter(t *testing.T) {
 	a := testHub("ws://example.test/ws", "http://example.test", "ABCD", true)
 

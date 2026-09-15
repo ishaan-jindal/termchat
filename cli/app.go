@@ -812,11 +812,7 @@ func (m appModel) viewHubHeader(width int) string {
 
 // hubVersion formats the build version for the header, e.g. "v2.3.0".
 func hubVersion() string {
-	if strings.HasPrefix(Version, "cli-") {
-		return "v" + strings.TrimPrefix(Version, "cli-")
-	}
-
-	return Version
+	return strings.TrimPrefix(Version, "cli-")
 }
 
 // hubRule is the flat dim divider between hub sections.
