@@ -716,6 +716,13 @@ func voiceActivityTicker() tea.Cmd {
 // toggleTalk arms or disarms the microphone; it returns a cmd that reports
 // unexpected capture deaths to the TUI.
 func toggleTalk(m *Model) tea.Cmd {
+	reason := vcUnsupported()
+	if reason != "" {
+		appendUI(m, reason)
+
+		return nil
+	}
+
 	if m.voice == nil {
 		appendUI(m, "join vc first with /vc")
 

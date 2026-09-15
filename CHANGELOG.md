@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Voice/video chat is Linux-only for now: `/vc`, `Ctrl+T` and `Ctrl+V`
+  report that the call is unavailable on other systems instead of attaching
+  a partial session, and chat keeps working everywhere.
+
 ### Fixed
 
 - The hub header showed release versions with a duplicated `v` (`vv2.4.0`);
