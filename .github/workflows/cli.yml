@@ -56,9 +56,6 @@ jobs:
           - os: windows
             arch: arm64
             ext: ".exe"
-          - os: android
-            arch: arm64
-            ext: ""
 
     steps:
       - name: Checkout

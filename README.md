@@ -15,7 +15,7 @@ temporary communities - no signup, no browser tabs.
 - A single server binary serves everything: WebSocket rooms, room
   discovery, and the bootstrap installer flow
 - LAN host mode runs a server in your terminal, no deployment needed
-- Linux, macOS, Windows, and Android (Termux) support
+- Linux, macOS, and Windows support
 
 ## Features
 
@@ -30,12 +30,14 @@ removed; rooms, discovery, and bootstrap all live in one binary.
 - Host privileges with automatic succession on host disconnect
 - Room discovery: online via `/discover`, LAN via UDP multicast beacon
 
-**Voice/Video call (`/vc`):**
+**Voice/Video call (`/vc`, Linux only for now):**
 
 - One command joins the room's call: `/vc` attaches both voice and video
   sessions at once, starting silent and camera-off. `Ctrl+T` arms the mic
   (push-to-talk), `Ctrl+V` arms the camera; muting/stopping kills the
-  capture process so the OS shows the mic/camera released
+  capture process so the OS shows the mic/camera released. On other
+  platforms `/vc`, `Ctrl+T` and `Ctrl+V` report that the call is linux-only
+  and chat keeps working
 - 16 kHz mono PCM in 40 ms chunks over a binary `/media` WebSocket,
   authenticated with single-use tokens from the control socket; playback
   uses `paplay` when available and falls back to `ffplay` (override with
@@ -46,10 +48,9 @@ removed; rooms, discovery, and bootstrap all live in one binary.
   wire only ever carries anonymous video (no opt-out), rendered as live ANSI
   art in a sidebar video column above the user roster with `[CAM]` markers
   and an on-video count in the footer
-- Voice needs a player (`paplay` or `ffplay`) on the PATH; camera capture
-  needs `ffmpeg` and is Linux-only (v4l2, `/dev/video0` by default).
-  `cam_device` and `voice_device` in `~/.termchat/config.json` override
-  the defaults; platforms without them stay in chat-only mode
+- Voice needs a player (`paplay` or `ffplay`) on the PATH and camera
+  capture needs `ffmpeg` (v4l2, `/dev/video0` by default). `cam_device` and
+  `voice_device` in `~/.termchat/config.json` override the defaults
 
 **Terminal UI:**
 
@@ -140,8 +141,8 @@ In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #RRGGBB`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
 (react to a message), `/vc [on|off]` (bare `/vc` toggles; join/leave the
-voice+video call), `/quit`. In the room `Ctrl+T` toggles the mic and
-`Ctrl+V` toggles the camera.
+voice+video call, Linux only for now), `/quit`. In the room `Ctrl+T` toggles
+the mic and `Ctrl+V` toggles the camera.
 
 In-room keys: `PgUp`/`PgDn` scroll, `Tab` accepts completion, `Esc`
 dismisses, `Up`/`Down` browse history, `Alt+Enter` inserts a newline,
@@ -228,7 +229,7 @@ Use `just` (recommended) or the Makefile:
 ```bash
 just check     # full CI gate: tidy, fmt, vet, build, race-tested tests
 just build     # CLI binary to dist/termchat
-just cross     # cross-compile all 8 release platforms
+just cross     # cross-compile all 7 release platforms
 just server    # run the WebSocket server locally (port 8080)
 ```
 
@@ -268,7 +269,6 @@ Images are published to [GHCR](https://github.com/users/ishaan-jindal/packages/c
 | Linux            | amd64, arm64, 386 / i686 |
 | macOS            | amd64, arm64             |
 | Windows          | amd64, arm64             |
-| Android / Termux | arm64                    |
 
 ## Contributing
 
@@ -282,7 +282,7 @@ This project uses AI tools as development aids (drafting, iteration,
 reviews, tests, and documentation). Architecture, constraints, and final
 code decisions are owned by the human committers.
 
-The mobile companion is [termchat-mobile](https://github.com/ishaan-jindal/termchat-mobile).
+The Android companion is [termchat-mobile](https://github.com/ishaan-jindal/termchat-mobile).
 
 ## License
 

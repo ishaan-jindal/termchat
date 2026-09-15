@@ -39,7 +39,6 @@ var allowedBinaries = map[string]bool{
 	"termchat-darwin-arm64":      true,
 	"termchat-windows-amd64.exe": true,
 	"termchat-windows-arm64.exe": true,
-	"termchat-android-arm64":     true,
 }
 
 func initBootstrapConfig() {

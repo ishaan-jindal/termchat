@@ -308,6 +308,13 @@ func (m *Model) closeMediaIfIdle() {
 
 // toggleVideo arms or disarms the camera within a joined call.
 func toggleVideo(m *Model) tea.Cmd {
+	reason := vcUnsupported()
+	if reason != "" {
+		appendUI(m, reason)
+
+		return nil
+	}
+
 	if m.video == nil {
 		appendUI(m, "join vc first with /vc")
 

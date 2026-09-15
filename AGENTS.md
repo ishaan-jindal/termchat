@@ -101,7 +101,7 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
 
 - `.github/workflows/ci.yml` - PR gate: tidy, gofmt, vet as a format check,
   `go test -race` and bounded fuzzing as separate checks.
-- Tag `cli-v*` -> `.github/workflows/cli.yml`: builds 8 binaries, generates
+- Tag `cli-v*` -> `.github/workflows/cli.yml`: builds 7 binaries, generates
   `termchat-checksums.txt`, creates the GitHub Release via `gh`, then calls
   `aur.yml` (AUR package sync), `websocket.yml` (GHCR image), and `npm.yml`
   (npm publish) as downstream jobs behind the release. None of those three

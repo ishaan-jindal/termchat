@@ -545,6 +545,13 @@ func cmdVC(m *Model, args []string) (bool, bool) {
 // when the shared conn does not exist yet. Both sides start silent and
 // camera-off.
 func (m *Model) joinVC() tea.Cmd {
+	reason := vcUnsupported()
+	if reason != "" {
+		appendUI(m, reason)
+
+		return nil
+	}
+
 	if m.tokenPending {
 		appendUI(m, "vc request already in flight")
 		return nil

@@ -7,16 +7,16 @@ WS_URL="${BASE_URL/http/ws}/ws"
 OS=$(uname -s)
 ARCH=$(uname -m)
 
-# Detect Termux / Android
+# Termux is served by the termchat-mobile app.
 if [ -n "$TERMUX_VERSION" ]; then
-    PLATFORM="android"
+    echo "Termux is not supported; use the termchat-mobile app:"
+    echo "https://github.com/ishaan-jindal/termchat-mobile"
+    exit 1
 fi
 
 case "$OS" in
     Linux)
-        if [ -z "$PLATFORM" ]; then
-            PLATFORM="linux"
-        fi
+        PLATFORM="linux"
         ;;
 
     Darwin)

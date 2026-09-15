@@ -49,7 +49,7 @@ just pre-commit   # Run before committing (tidy, fmt, vet, build, race tests)
 just check        # Same as pre-commit
 just test-race    # Tests under the race detector
 just test-e2e     # End-to-end suite (real server, real CLI networking)
-just cross        # Cross-compile all 8 release platforms
+just cross        # Cross-compile all 7 release platforms
 just server       # Run the WebSocket server locally (port 8080)
 ```
 

@@ -156,3 +156,20 @@ func TestVCProtocolUnchanged(t *testing.T) {
 		t.Error("MediaKindVideo should be nonzero")
 	}
 }
+
+// TestVCUnsupportedReason verifies the call is gated to Linux with a
+// user-facing message on every other platform.
+func TestVCUnsupportedReason(t *testing.T) {
+	got := vcUnsupportedReason("linux")
+	if got != "" {
+		t.Errorf("vcUnsupportedReason(linux) = %q, want empty", got)
+	}
+
+	for _, goos := range []string{"darwin", "windows", "android", "freebsd"} {
+		reason := vcUnsupportedReason(goos)
+
+		if !strings.Contains(reason, "linux-only") {
+			t.Errorf("vcUnsupportedReason(%s) = %q, want a linux-only message", goos, reason)
+		}
+	}
+}
