@@ -13,6 +13,12 @@
 - The hub header showed release versions with a duplicated `v` (`vv2.4.0`);
   the `cli-` tag prefix is now stripped once, rendering `v2.4.0`.
 
+### Removed
+
+- Android/Termux CLI support: the `android/arm64` release binary, the Termux
+  bootstrap path and `/bin/termchat-android-arm64` downloads are gone;
+  Android users should use the termchat-mobile companion app.
+
 ## [cli-v2.4.0] - 2026-09-12
 
 ### Added

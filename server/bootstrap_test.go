@@ -216,7 +216,9 @@ func TestBinaryRedirectRejectsUnknownNames(t *testing.T) {
 	srv := startTestServer(t)
 	initBootstrapTestEnv(t)
 
-	for _, name := range []string{"foo", "..%2fetc%2fpasswd", "termchat-linux-riscv64"} {
+	for _, name := range []string{
+		"foo", "..%2fetc%2fpasswd", "termchat-linux-riscv64", "termchat-android-arm64",
+	} {
 		resp, body := get(t, srv.URL+"/bin/"+name)
 
 		if resp.StatusCode != http.StatusBadRequest {
