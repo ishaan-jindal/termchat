@@ -626,6 +626,12 @@ func (m Model) View() string {
 		Height(m.viewport.Height).
 		Render(m.messagesHeader(scrollInfo) + "\n" + msgView.View())
 
+	if m.showPopup {
+		if popup := renderCompletion(m); popup != "" {
+			messagesPanel = overlayBottom(messagesPanel, strings.Split(popup, "\n"))
+		}
+	}
+
 	var content string
 
 	if m.showSidebar {
@@ -721,12 +727,6 @@ func (m Model) View() string {
 	status := m.renderStatusBar(roomInfo, voiceInfo+videoInfo+onVideoInfo)
 
 	rows := []string{content}
-
-	if m.showPopup {
-		if popup := renderCompletion(m); popup != "" {
-			rows = append(rows, popup)
-		}
-	}
 
 	if m.videoPanelHeight() > 0 {
 		rows = append(rows, m.renderVideoPanel())
@@ -1405,8 +1405,6 @@ func dismissCompletion(m *Model) {
 
 	m.showPopup = false
 	m.selected = 0
-
-	resizeViewport(m)
 }
 
 // acceptCompletion inserts the selected suggestion in place of the current
@@ -1425,31 +1423,26 @@ func acceptCompletion(m *Model) {
 	value := m.input.Value()
 	m.input.SetValue(value[:len(value)-tokenLen] + matches[m.selected].insert)
 	m.input.CursorEnd()
-
-	resizeViewport(m)
 }
 
 // resizeViewport refits the viewport height from the terminal size, the
-// input height and the popup height.
+// input height and the video panel height.
 func resizeViewport(m *Model) {
-	popupHeight := len(completionMatches(m))
-	if popupHeight > 0 {
-		popupHeight += 2 // rounded border
-	}
-
 	m.viewport.Height = max(
-		m.height-textareaHeight(m.input)-popupHeight-7-m.videoPanelHeight(),
+		m.height-textareaHeight(m.input)-7-m.videoPanelHeight(),
 		5,
 	)
 }
 
+// renderCompletion renders the popup panel, capped to the chat panel's
+// remaining rows and windowed so the selected row stays visible.
 func renderCompletion(m Model) string {
 	matches := completionMatches(&m)
 	if len(matches) == 0 {
 		return ""
 	}
 
-	sel := min(m.selected, len(matches)-1)
+	sel := min(max(m.selected, 0), len(matches)-1)
 
 	width := 0
 
@@ -1457,14 +1450,19 @@ func renderCompletion(m Model) string {
 		width = max(width, len(s.primary))
 	}
 
-	rows := make([]string, 0, len(matches))
+	maxRows := max(m.viewport.Height-2, 1)
 
-	for i, s := range matches {
+	start := min(max(sel-maxRows+1, 0), max(len(matches)-maxRows, 0))
+	end := min(start+maxRows, len(matches))
+
+	rows := make([]string, 0, end-start)
+
+	for i, s := range matches[start:end] {
 		// Each column is rendered with one style so the selected row's
 		// background is not cut short by an inner reset sequence.
 		rowStyle := m.theme.base
 
-		if i == sel {
+		if start+i == sel {
 			rowStyle = m.theme.completionSelected
 		}
 
@@ -1480,8 +1478,21 @@ func renderCompletion(m Model) string {
 	}
 
 	return m.theme.panel.
-		Width(m.width - 6).
+		Width(m.viewport.Width + 4).
 		Render(strings.Join(rows, "\n"))
+}
+
+// overlayBottom replaces the last lines of under with over; both blocks
+// render at the same width, so whole lines are swapped.
+func overlayBottom(under string, over []string) string {
+	lines := strings.Split(under, "\n")
+
+	start := max(len(lines)-len(over), 0)
+	over = over[max(len(over)-len(lines), 0):]
+
+	copy(lines[start:], over)
+
+	return strings.Join(lines, "\n")
 }
 
 func textareaHeight(input textarea.Model) int {
