@@ -504,6 +504,104 @@ func TestMentionStylingFollowsTheme(t *testing.T) {
 	}
 }
 
+func TestMentionNickColoredByRoster(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @BOB!",
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "38;2;0;255;0") {
+		t.Errorf("@BOB not painted in bob's color: %q", m.messages[0].rendered)
+	}
+}
+
+func TestMentionLongestNickWins(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{
+		{Nick: "bob", Color: "#00ff00"},
+		{Nick: "bobby", Color: "#0000ff"},
+	}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @bobby",
+	}))
+
+	rendered := m.messages[0].rendered
+
+	if !strings.Contains(rendered, "38;2;0;0;255") {
+		t.Errorf("@bobby not painted in bobby's color: %q", rendered)
+	}
+
+	if strings.Contains(rendered, "38;2;0;255;0") {
+		t.Errorf("@bobby partially painted as bob: %q", rendered)
+	}
+}
+
+func TestUnknownMentionStaysPlain(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @ghost",
+	}))
+
+	if strings.Contains(m.messages[0].rendered, "38;2;0;255;0") {
+		t.Errorf("unknown mention painted with a roster color: %q", m.messages[0].rendered)
+	}
+}
+
+func TestSelfMentionTokenKeepsHighlight(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "alice", Color: "#ff00ff"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "bob", Color: "#00ff00", Text: "hey @alice!",
+	}))
+
+	rendered := m.messages[0].rendered
+
+	if !strings.Contains(rendered, "48;5;255") {
+		t.Errorf("self mention lost the highlight: %q", rendered)
+	}
+
+	if !strings.Contains(rendered, "38;2;255;0;255") {
+		t.Errorf("self mention not painted in alice's color: %q", rendered)
+	}
+}
+
+func TestHistoryMentionsColoredOnRoster(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "history", Messages: []Message{
+		{Type: "message", Nick: "bob", Color: "#00ff00", Text: "hi @carol"},
+	}}))
+
+	if strings.Contains(m.messages[0].rendered, "38;2;0;0;255") {
+		t.Fatalf("mention colored before the roster arrived: %q", m.messages[0].rendered)
+	}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "carol", Color: "#0000ff"}},
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "38;2;0;0;255") {
+		t.Errorf("history mention not colored after users_list: %q", m.messages[0].rendered)
+	}
+}
+
 func TestCmdThemeSwitchRerenders(t *testing.T) {
 	forceColor(t)
 

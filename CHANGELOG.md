@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `@nick` mentions in the chat log are painted in the mentioned user's
+  color, matching the roster.
+
 ### Changed
 
 - The autocomplete popup overlays the chat pane instead of taking its own

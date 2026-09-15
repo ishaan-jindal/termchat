@@ -386,6 +386,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.usersRequested = false
 			}
 
+			rerenderAll(&m)
+
 		case "media_token":
 			if m.voice == nil && m.tokenPending && msg.Token != "" {
 				m.tokenPending = false
@@ -1259,6 +1261,13 @@ func renderMessage(m *Model, msg Message) string {
 		Background(m.theme.base.GetBackground()).
 		Bold(true)
 
+	body := m.theme.base
+
+	if mentioned {
+		body = m.theme.mention
+		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
+	}
+
 	prefix := idPrefix + msg.Nick + ": "
 	availableWidth := max(m.viewport.Width-len(prefix), 10)
 	wrapped := msg.Text
@@ -1267,28 +1276,15 @@ func renderMessage(m *Model, msg Message) string {
 	}
 	lines := strings.Split(wrapped, "\n")
 
-	if mentioned {
-		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
-		for i := range lines {
-			if i == 0 {
-				lines[i] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + m.theme.mention.Render(": "+lines[i])
-			} else {
-				lines[i] = m.theme.mention.Render(strings.Repeat(" ", len(prefix)) + lines[i])
-			}
-		}
-	} else {
-		renderedNick := nickStyle.Render(msg.Nick)
-		for i := range lines {
-			if i == 0 {
-				// Plain segments are themed explicitly: the reset at
-				// the end of a colored span would otherwise drop the
-				// background for the rest of the line.
-				lines[i] = m.theme.system.Render(idPrefix) + renderedNick + m.theme.base.Render(": "+lines[i])
-			} else {
-				lines[i] = m.theme.base.Render(strings.Repeat(" ", len(prefix)) + lines[i])
-			}
+	for i := range lines {
+		if i == 0 {
+			lines[i] = renderMentions(m, body, ": "+lines[i])
+		} else {
+			lines[i] = renderMentions(m, body, strings.Repeat(" ", len(prefix))+lines[i])
 		}
 	}
+
+	lines[0] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + lines[0]
 
 	var out []string
 
@@ -1304,6 +1300,52 @@ func renderMessage(m *Model, msg Message) string {
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// renderMentions paints @nick tokens matching a roster member in their color.
+func renderMentions(m *Model, base lipgloss.Style, text string) string {
+	var out strings.Builder
+
+	plain := 0
+
+	for i := 0; i < len(text); {
+		if text[i] != '@' {
+			i++
+			continue
+		}
+
+		nick, color := "", ""
+
+		for _, u := range m.users {
+			end := i + 1 + len(u.Nick)
+
+			if end > len(text) || len(u.Nick) <= len(nick) {
+				continue
+			}
+
+			if strings.EqualFold(text[i+1:end], u.Nick) {
+				nick, color = u.Nick, u.Color
+			}
+		}
+
+		if nick == "" {
+			i++
+			continue
+		}
+
+		out.WriteString(base.Render(text[plain:i]))
+		out.WriteString(base.
+			Foreground(lipgloss.Color(color)).
+			Bold(true).
+			Render(text[i : i+1+len(nick)]))
+
+		i += 1 + len(nick)
+		plain = i
+	}
+
+	out.WriteString(base.Render(text[plain:]))
+
+	return out.String()
 }
 
 // formatQuote renders the quoted message of a reply as a dim quote line, or
