@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- The hub header showed release versions with a duplicated `v` (`vv2.4.0`);
+  the `cli-` tag prefix is now stripped once, rendering `v2.4.0`.
+
 ## [cli-v2.4.0] - 2026-09-12
 
 ### Added
