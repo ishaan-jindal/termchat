@@ -6,10 +6,12 @@
 
 - `@nick` mentions in the chat log are painted in the mentioned user's
   color, matching the roster.
-- Private whispers: `/msg <nick> <text>` sends a one-to-one message
-  routed only to the target plus sender echo, never broadcast or stored
-  in history; `/r <text>` replies to the last whisperer. Unknown targets
-  get a `no such user` system message.
+- Private whispers: `/msg <nick> <text>` (alias `/w`) sends a one-to-one
+  message routed only to the target plus sender echo, never broadcast or
+  stored in history; `/r <text>` replies to the last whisperer. The nick
+  argument completes from the room roster, nicks render with an `@`
+  prefix in the displayed user's roster color, and unknown targets get
+  a `no such user` system message (by @ishaan-jindal).
 
 ### Changed
 
