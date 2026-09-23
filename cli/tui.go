@@ -1289,6 +1289,11 @@ func renderMessage(m *Model, msg Message) string {
 		}
 		// Server stores the stripped form, so one @ suffices.
 		display = dir + "@" + strings.TrimPrefix(who, "@")
+		// Paint the displayed nick in its roster color, falling back
+		// to the sender color when the user already left.
+		if c := rosterColor(m, who); c != "" {
+			nickStyle = nickStyle.Foreground(lipgloss.Color(c))
+		}
 	}
 
 	prefix := idPrefix + tag + display + ": "
@@ -1323,6 +1328,19 @@ func renderMessage(m *Model, msg Message) string {
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// rosterColor returns the roster color for nick, or empty when absent.
+func rosterColor(m *Model, nick string) string {
+	nick = strings.TrimPrefix(nick, "@")
+
+	for _, u := range m.users {
+		if strings.EqualFold(u.Nick, nick) {
+			return u.Color
+		}
+	}
+
+	return ""
 }
 
 // renderMentions paints @nick tokens matching a roster member in their color.
