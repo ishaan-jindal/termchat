@@ -12,10 +12,12 @@ import (
 )
 
 type command struct {
-	name        string
-	usage       string
-	description string
-	handler     func(m *Model, args []string) (handled bool, quit bool)
+	name         string
+	aliases      []string
+	usage        string
+	description  string
+	handler      func(m *Model, args []string) (handled bool, quit bool)
+	aliasHandler func(m *Model, alias string, args []string) (handled bool, quit bool)
 }
 
 // Handlers are wired in init because their bodies refer back to commands,
@@ -79,18 +81,12 @@ func init() {
 			handler:     cmdReact,
 		},
 		{
-			name:        "/msg",
-			usage:       "/msg <nick> <text>",
-			description: "whisper privately to a user",
-			handler:     cmdMsg,
-		},
-		{
-			name:        "/w",
-			usage:       "/w <nick> <text>",
-			description: "alias of /msg",
-			handler: func(m *Model, args []string) (bool, bool) {
-				return cmdMsgAs(m, args, "/w")
-			},
+			name:         "/msg",
+			aliases:      []string{"/w"},
+			usage:        "/msg <nick> <text>",
+			description:  "whisper privately to a user",
+			handler:      cmdMsg,
+			aliasHandler: cmdMsgAs,
 		},
 		{
 			name:        "/r",
@@ -116,22 +112,34 @@ func init() {
 func handleCommand(m *Model, input string) (handled bool, quit bool) {
 	parts := strings.Split(input, " ")
 
-	cmd, ok := lookupCommand(parts[0])
+	cmd, invoked, ok := lookupCommand(parts[0])
 	if !ok {
 		return false, false
+	}
+
+	if invoked != cmd.name && cmd.aliasHandler != nil {
+		return cmd.aliasHandler(m, invoked, parts[1:])
 	}
 
 	return cmd.handler(m, parts[1:])
 }
 
-func lookupCommand(name string) (command, bool) {
+// lookupCommand resolves a typed name to its entry plus the matched name,
+// which is an alias when it differs from the entry name.
+func lookupCommand(name string) (command, string, bool) {
 	for _, c := range commands {
 		if c.name == name {
-			return c, true
+			return c, c.name, true
+		}
+
+		for _, a := range c.aliases {
+			if a == name {
+				return c, a, true
+			}
 		}
 	}
 
-	return command{}, false
+	return command{}, "", false
 }
 
 func filterCommands(prefix string) []command {
@@ -142,6 +150,15 @@ func filterCommands(prefix string) []command {
 	for _, c := range commands {
 		if strings.HasPrefix(c.name, prefix) {
 			matches = append(matches, c)
+		}
+
+		for _, a := range c.aliases {
+			if strings.HasPrefix(a, prefix) {
+				ac := c
+				ac.name = a
+				ac.usage = strings.Replace(c.usage, c.name, a, 1)
+				matches = append(matches, ac)
+			}
 		}
 	}
 
@@ -364,6 +381,12 @@ func cmdHelp(m *Model, _ []string) (bool, bool) {
 	for _, c := range commands {
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("%-*s  %s", maxUsageLen(), c.usage, c.description))
+
+		for _, a := range c.aliases {
+			au := strings.Replace(c.usage, c.name, a, 1)
+			b.WriteString("\n")
+			b.WriteString(fmt.Sprintf("%-*s  %s", maxUsageLen(), au, "alias of "+c.name))
+		}
 	}
 
 	appendUI(m, b.String())
@@ -528,11 +551,11 @@ func cmdReply(m *Model, args []string) (bool, bool) {
 
 // cmdMsg sends a private whisper; the server echoes it to both sides.
 func cmdMsg(m *Model, args []string) (bool, bool) {
-	return cmdMsgAs(m, args, "/msg")
+	return cmdMsgAs(m, "/msg", args)
 }
 
 // cmdMsgAs is cmdMsg under the invoked alias, used for usage hints.
-func cmdMsgAs(m *Model, args []string, name string) (bool, bool) {
+func cmdMsgAs(m *Model, name string, args []string) (bool, bool) {
 	if len(args) < 2 {
 		appendUI(m, "usage: "+name+" <nick> <text>")
 		return true, false

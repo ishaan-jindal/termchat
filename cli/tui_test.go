@@ -1026,8 +1026,8 @@ func TestCommandRegistryIntegrity(t *testing.T) {
 func TestFilterCommands(t *testing.T) {
 	all := filterCommands("/")
 
-	if len(all) != len(commands) {
-		t.Fatalf("filter / = %d matches, want %d", len(all), len(commands))
+	if len(all) != visibleCommands() {
+		t.Fatalf("filter / = %d matches, want %d", len(all), visibleCommands())
 	}
 
 	matches := filterCommands("/RE")
@@ -1049,6 +1049,18 @@ func commandNames(cmds []command) []string {
 	}
 
 	return out
+}
+
+// visibleCommands counts registry entries plus aliases, which the filter
+// and completion pipelines expand into their own rows.
+func visibleCommands() int {
+	n := len(commands)
+
+	for _, c := range commands {
+		n += len(c.aliases)
+	}
+
+	return n
 }
 
 func TestHelpListsAllCommands(t *testing.T) {
@@ -1091,8 +1103,8 @@ func TestCompletionAutoOpenOnSlash(t *testing.T) {
 
 	matches := completionMatches(&m)
 
-	if len(matches) != len(commands) {
-		t.Fatalf("matches = %d, want all %d", len(matches), len(commands))
+	if len(matches) != visibleCommands() {
+		t.Fatalf("matches = %d, want all %d", len(matches), visibleCommands())
 	}
 
 	m = typeRunes(t, m, "nic")
@@ -1222,8 +1234,8 @@ func TestCompletionUpDownNavigation(t *testing.T) {
 		m, _ = update(t, m, down)
 	}
 
-	if m.selected != len(commands)-1 {
-		t.Fatalf("selected = %d, want clamped at %d", m.selected, len(commands)-1)
+	if m.selected != visibleCommands()-1 {
+		t.Fatalf("selected = %d, want clamped at %d", m.selected, visibleCommands()-1)
 	}
 }
 
