@@ -477,12 +477,12 @@ func handleWhisper(client *Client, msg Message) {
 		return
 	}
 	targetNick := sanitizeInput(msg.Target)
-	senderNick := client.nickname()
-	if targetNick == "" || targetNick == senderNick {
-		client.trySend(Message{Type: "system", Text: "no such user " + targetNick})
+	if targetNick == "" {
+		client.trySend(Message{Type: "system", Text: "usage: target nick required"})
 		return
 	}
-	msg.Nick = senderNick
+	msg.ReplyToID, msg.ReplyToNick, msg.ReplyToText, msg.Reactions = 0, "", "", nil
+	msg.Nick = client.nickname()
 	msg.Color = client.color()
 	msg.Target = targetNick
 	roomsMutex.RLock()
@@ -493,25 +493,36 @@ func handleWhisper(client *Client, msg Message) {
 		return
 	}
 	room.Mutex.Lock()
-	var target *Client
+	var matches []*Client
 	for c := range room.Clients {
 		c.mu.Lock()
 		nick := c.Nickname
 		c.mu.Unlock()
 		if nick == targetNick {
-			target = c
-			break
+			matches = append(matches, c)
 		}
 	}
-	if target == nil || target == client {
-		room.Mutex.Unlock()
+	var target *Client
+	if len(matches) == 1 && matches[0] != client {
+		target = matches[0]
+		msg.Timestamp = time.Now().UnixMilli()
+	}
+	room.Mutex.Unlock()
+	if len(matches) > 1 {
+		client.trySend(Message{Type: "system", Text: "ambiguous nick " + targetNick})
+		return
+	}
+	if target == nil {
 		client.trySend(Message{Type: "system", Text: "no such user " + targetNick})
 		return
 	}
-	msg.ID = room.NextID
-	room.NextID++
-	msg.Timestamp = time.Now().UnixMilli()
-	room.Mutex.Unlock()
+	client.mu.Lock()
+	wasTyping := client.Typing
+	client.Typing = false
+	client.mu.Unlock()
+	if wasTyping {
+		broadcastUsersList(client.RoomID)
+	}
 	target.trySend(msg)
 	client.trySend(msg)
 }
