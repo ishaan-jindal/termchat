@@ -384,6 +384,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "users_list":
 			m.users = msg.Users
 
+			// A departed whisperer could lend the nick to a stranger.
+			if m.lastWhisperer != "" && rosterColor(&m, m.lastWhisperer) == "" {
+				m.lastWhisperer = ""
+			}
+
 			if msg.ServerTime != 0 {
 				m.clockOffset = msg.ServerTime - time.Now().Unix()
 			}

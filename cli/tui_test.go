@@ -889,6 +889,123 @@ func TestCommandReactInvalid(t *testing.T) {
 	}
 }
 
+func TestCommandMsgStripsOneAt(t *testing.T) {
+	cases := map[string]string{
+		"/msg @bob hi":  "bob",
+		"/msg bob hi":   "bob",
+		"/msg @@bob hi": "@bob",
+		"/w @bob hi":    "bob",
+	}
+
+	for input, want := range cases {
+		m := testModel()
+
+		handled, quit := handleCommand(&m, input)
+
+		if !handled || quit {
+			t.Fatalf("%q handled = %v, quit = %v", input, handled, quit)
+		}
+
+		msgs := drainSend(t, m)
+
+		if len(msgs) != 1 || msgs[0].Type != "whisper" || msgs[0].Target != want || msgs[0].Text != "hi" {
+			t.Fatalf("%q sent = %+v, want whisper to %q", input, msgs, want)
+		}
+	}
+}
+
+func TestCommandRRepliesToLastWhisperer(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "bob", Text: "hey"}))
+
+	if m.lastWhisperer != "bob" {
+		t.Fatalf("lastWhisperer = %q, want bob", m.lastWhisperer)
+	}
+
+	handled, quit := handleCommand(&m, "/r hello back")
+
+	if !handled || quit {
+		t.Fatalf("handled = %v, quit = %v", handled, quit)
+	}
+
+	msgs := drainSend(t, m)
+
+	if len(msgs) != 1 || msgs[0].Type != "whisper" || msgs[0].Target != "bob" || msgs[0].Text != "hello back" {
+		t.Fatalf("sent = %+v, want whisper to bob", msgs)
+	}
+}
+
+func TestCommandRWithoutWhispererHints(t *testing.T) {
+	m := testModel()
+
+	handled, _ := handleCommand(&m, "/r hello")
+
+	if !handled {
+		t.Fatal("expected handled")
+	}
+
+	if msgs := drainSend(t, m); len(msgs) != 0 {
+		t.Fatalf("sent = %+v, want no message", msgs)
+	}
+
+	found := false
+
+	for _, line := range m.messages {
+		if strings.Contains(line.rendered, "no one has whispered") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Error("no whisper hint shown")
+	}
+}
+
+func TestUsersListClearsStaleWhisperer(t *testing.T) {
+	m := testModel()
+	m.lastWhisperer = "bob"
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "alice", Color: "#fff"}},
+	}))
+
+	if m.lastWhisperer != "" {
+		t.Errorf("lastWhisperer = %q, want cleared", m.lastWhisperer)
+	}
+
+	m.lastWhisperer = "BOB"
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "bob", Color: "#000"}},
+	}))
+
+	if m.lastWhisperer != "BOB" {
+		t.Errorf("lastWhisperer = %q, want kept", m.lastWhisperer)
+	}
+}
+
+func TestWhisperRenderDirection(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "bob", Color: "#00ff00", Text: "hey"}))
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "alice", Color: "#ff0000", Target: "bob", Text: "hi"}))
+
+	if len(m.messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(m.messages))
+	}
+
+	if !strings.Contains(m.messages[0].rendered, "from @bob") {
+		t.Errorf("rendered = %q, want inbound direction", m.messages[0].rendered)
+	}
+
+	if !strings.Contains(m.messages[1].rendered, "to @bob") {
+		t.Errorf("rendered = %q, want echo direction", m.messages[1].rendered)
+	}
+}
+
 func TestMessageIDDisplay(t *testing.T) {
 	m := testModel()
 
