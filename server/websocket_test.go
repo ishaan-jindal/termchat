@@ -2094,3 +2094,250 @@ func TestMediaTokenExpiry(t *testing.T) {
 		t.Fatal("expired token accepted")
 	}
 }
+
+func TestWhisperDeliversToTargetAndSenderOnly(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "WHSP", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "WHSP", "bob", "")
+	defer b.close()
+
+	c := joinRoom(t, srv, "WHSP", "carol", "")
+	defer c.close()
+
+	waitUsers(t, a, "alice", "bob", "carol")
+	waitUsers(t, b, "alice", "bob", "carol")
+	waitUsers(t, c, "alice", "bob", "carol")
+
+	b.send(shared.Message{Type: "whisper", Target: "alice", Text: "secret"})
+
+	got := a.nextOfType("whisper")
+
+	if got.Nick != "bob" || got.Target != "alice" || got.Text != "secret" {
+		t.Fatalf("whisper = %+v, want bob->alice secret", got)
+	}
+
+	if got.Timestamp == 0 || got.Color == "" || got.ID != 0 {
+		t.Errorf("whisper missing stamp: %+v", got)
+	}
+
+	echo := b.nextOfType("whisper")
+
+	if echo.Nick != "bob" || echo.Target != "alice" || echo.Text != "secret" {
+		t.Fatalf("echo = %+v, want bob->alice secret", echo)
+	}
+
+	if echo.ID != 0 {
+		t.Errorf("whisper echo carries ID: %+v", echo)
+	}
+
+	deadline := time.After(750 * time.Millisecond)
+
+	for {
+		select {
+		case m := <-c.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("carol received whisper: %+v", m)
+			}
+			if strings.Contains(m.Text, "secret") {
+				t.Fatalf("carol saw secret text: %+v", m)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestWhisperNotInHistory(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "WHSH", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "WHSH", "bob", "")
+	defer b.close()
+
+	waitUsers(t, a, "alice", "bob")
+	waitUsers(t, b, "alice", "bob")
+
+	b.send(shared.Message{Type: "whisper", Target: "alice", Text: "quiet"})
+
+	a.nextOfType("whisper")
+	b.nextOfType("whisper")
+
+	room := roomState(t, "WHSH")
+	room.Mutex.Lock()
+	for _, m := range room.History {
+		if m.Type == "whisper" || m.Text == "quiet" {
+			room.Mutex.Unlock()
+			t.Fatalf("whisper leaked into history: %+v", m)
+		}
+	}
+	room.Mutex.Unlock()
+
+	d := joinRoom(t, srv, "WHSH", "carol", "")
+	defer d.close()
+
+	hist := d.nextOfType("history")
+
+	for _, m := range hist.Messages {
+		if m.Type == "whisper" || m.Text == "quiet" {
+			t.Fatalf("late joiner saw whisper: %+v", m)
+		}
+	}
+}
+
+func TestWhisperUnknownUser(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "WHSU", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "WHSU", "bob", "")
+	defer b.close()
+
+	waitUsers(t, a, "alice", "bob")
+	waitUsers(t, b, "alice", "bob")
+
+	b.send(shared.Message{Type: "whisper", Target: "ghost", Text: "hi"})
+
+	reply := b.nextOfType("system")
+
+	if !strings.Contains(reply.Text, "no such user") {
+		t.Fatalf("reply = %+v, want no such user", reply)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+
+	for {
+		select {
+		case m := <-a.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("alice received whisper for unknown user: %+v", m)
+			}
+			if m.Type == "system" && strings.Contains(m.Text, "no such user") {
+				t.Fatalf("alice received error reply: %+v", m)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestWhisperSelfRefused(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "WHSF", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "WHSF", "bob", "")
+	defer b.close()
+
+	waitUsers(t, a, "alice", "bob")
+	waitUsers(t, b, "alice", "bob")
+
+	b.send(shared.Message{Type: "whisper", Target: "bob", Text: "me"})
+
+	reply := b.nextOfType("system")
+
+	if !strings.Contains(reply.Text, "no such user") {
+		t.Fatalf("reply = %+v, want no such user", reply)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+
+	for {
+		select {
+		case m := <-a.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("alice received self-whisper: %+v", m)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestWhisperEmptyTargetUsage(t *testing.T) {
+	srv := startTestServer(t)
+
+	a := joinRoom(t, srv, "WHSE", "alice", "")
+	defer a.close()
+
+	b := joinRoom(t, srv, "WHSE", "bob", "")
+	defer b.close()
+
+	waitUsers(t, a, "alice", "bob")
+	waitUsers(t, b, "alice", "bob")
+
+	b.send(shared.Message{Type: "whisper", Text: "hi"})
+
+	reply := b.nextOfType("system")
+
+	if !strings.Contains(reply.Text, "usage") {
+		t.Fatalf("reply = %+v, want usage message", reply)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+
+	for {
+		select {
+		case m := <-a.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("alice received empty-target whisper: %+v", m)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}
+
+func TestWhisperDuplicateNickAmbiguous(t *testing.T) {
+	srv := startTestServer(t)
+
+	s1 := joinRoom(t, srv, "WHAM", "sam", "")
+	defer s1.close()
+
+	s2 := joinRoom(t, srv, "WHAM", "sam", "")
+	defer s2.close()
+
+	b := joinRoom(t, srv, "WHAM", "bob", "")
+	defer b.close()
+
+	waitUsers(t, s1, "sam", "bob")
+	waitUsers(t, s2, "sam", "bob")
+	waitUsers(t, b, "sam", "bob")
+
+	b.send(shared.Message{Type: "whisper", Target: "sam", Text: "secret"})
+
+	reply := b.nextOfType("system")
+
+	if !strings.Contains(reply.Text, "ambiguous nick") {
+		t.Fatalf("reply = %+v, want ambiguous nick", reply)
+	}
+
+	deadline := time.After(750 * time.Millisecond)
+
+	for {
+		select {
+		case m := <-s1.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("first sam received ambiguous whisper: %+v", m)
+			}
+			if strings.Contains(m.Text, "secret") {
+				t.Fatalf("first sam saw secret text: %+v", m)
+			}
+		case m := <-s2.msgs:
+			if m.Type == "whisper" {
+				t.Fatalf("second sam received ambiguous whisper: %+v", m)
+			}
+			if strings.Contains(m.Text, "secret") {
+				t.Fatalf("second sam saw secret text: %+v", m)
+			}
+		case <-deadline:
+			return
+		}
+	}
+}

@@ -889,6 +889,123 @@ func TestCommandReactInvalid(t *testing.T) {
 	}
 }
 
+func TestCommandMsgStripsOneAt(t *testing.T) {
+	cases := map[string]string{
+		"/msg @bob hi":  "bob",
+		"/msg bob hi":   "bob",
+		"/msg @@bob hi": "@bob",
+		"/w @bob hi":    "bob",
+	}
+
+	for input, want := range cases {
+		m := testModel()
+
+		handled, quit := handleCommand(&m, input)
+
+		if !handled || quit {
+			t.Fatalf("%q handled = %v, quit = %v", input, handled, quit)
+		}
+
+		msgs := drainSend(t, m)
+
+		if len(msgs) != 1 || msgs[0].Type != "whisper" || msgs[0].Target != want || msgs[0].Text != "hi" {
+			t.Fatalf("%q sent = %+v, want whisper to %q", input, msgs, want)
+		}
+	}
+}
+
+func TestCommandRRepliesToLastWhisperer(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "bob", Text: "hey"}))
+
+	if m.lastWhisperer != "bob" {
+		t.Fatalf("lastWhisperer = %q, want bob", m.lastWhisperer)
+	}
+
+	handled, quit := handleCommand(&m, "/r hello back")
+
+	if !handled || quit {
+		t.Fatalf("handled = %v, quit = %v", handled, quit)
+	}
+
+	msgs := drainSend(t, m)
+
+	if len(msgs) != 1 || msgs[0].Type != "whisper" || msgs[0].Target != "bob" || msgs[0].Text != "hello back" {
+		t.Fatalf("sent = %+v, want whisper to bob", msgs)
+	}
+}
+
+func TestCommandRWithoutWhispererHints(t *testing.T) {
+	m := testModel()
+
+	handled, _ := handleCommand(&m, "/r hello")
+
+	if !handled {
+		t.Fatal("expected handled")
+	}
+
+	if msgs := drainSend(t, m); len(msgs) != 0 {
+		t.Fatalf("sent = %+v, want no message", msgs)
+	}
+
+	found := false
+
+	for _, line := range m.messages {
+		if strings.Contains(line.rendered, "no one has whispered") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Error("no whisper hint shown")
+	}
+}
+
+func TestUsersListClearsStaleWhisperer(t *testing.T) {
+	m := testModel()
+	m.lastWhisperer = "bob"
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "alice", Color: "#fff"}},
+	}))
+
+	if m.lastWhisperer != "" {
+		t.Errorf("lastWhisperer = %q, want cleared", m.lastWhisperer)
+	}
+
+	m.lastWhisperer = "BOB"
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "bob", Color: "#000"}},
+	}))
+
+	if m.lastWhisperer != "BOB" {
+		t.Errorf("lastWhisperer = %q, want kept", m.lastWhisperer)
+	}
+}
+
+func TestWhisperRenderDirection(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "bob", Color: "#00ff00", Text: "hey"}))
+	m, _ = update(t, m, IncomingMessage(Message{Type: "whisper", Nick: "alice", Color: "#ff0000", Target: "bob", Text: "hi"}))
+
+	if len(m.messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(m.messages))
+	}
+
+	if !strings.Contains(m.messages[0].rendered, "from @bob") {
+		t.Errorf("rendered = %q, want inbound direction", m.messages[0].rendered)
+	}
+
+	if !strings.Contains(m.messages[1].rendered, "to @bob") {
+		t.Errorf("rendered = %q, want echo direction", m.messages[1].rendered)
+	}
+}
+
 func TestMessageIDDisplay(t *testing.T) {
 	m := testModel()
 
@@ -1026,8 +1143,8 @@ func TestCommandRegistryIntegrity(t *testing.T) {
 func TestFilterCommands(t *testing.T) {
 	all := filterCommands("/")
 
-	if len(all) != len(commands) {
-		t.Fatalf("filter / = %d matches, want %d", len(all), len(commands))
+	if len(all) != visibleCommands() {
+		t.Fatalf("filter / = %d matches, want %d", len(all), visibleCommands())
 	}
 
 	matches := filterCommands("/RE")
@@ -1049,6 +1166,18 @@ func commandNames(cmds []command) []string {
 	}
 
 	return out
+}
+
+// visibleCommands counts registry entries plus aliases, which the filter
+// and completion pipelines expand into their own rows.
+func visibleCommands() int {
+	n := len(commands)
+
+	for _, c := range commands {
+		n += len(c.aliases)
+	}
+
+	return n
 }
 
 func TestHelpListsAllCommands(t *testing.T) {
@@ -1091,8 +1220,8 @@ func TestCompletionAutoOpenOnSlash(t *testing.T) {
 
 	matches := completionMatches(&m)
 
-	if len(matches) != len(commands) {
-		t.Fatalf("matches = %d, want all %d", len(matches), len(commands))
+	if len(matches) != visibleCommands() {
+		t.Fatalf("matches = %d, want all %d", len(matches), visibleCommands())
 	}
 
 	m = typeRunes(t, m, "nic")
@@ -1222,8 +1351,8 @@ func TestCompletionUpDownNavigation(t *testing.T) {
 		m, _ = update(t, m, down)
 	}
 
-	if m.selected != len(commands)-1 {
-		t.Fatalf("selected = %d, want clamped at %d", m.selected, len(commands)-1)
+	if m.selected != visibleCommands()-1 {
+		t.Fatalf("selected = %d, want clamped at %d", m.selected, visibleCommands()-1)
 	}
 }
 

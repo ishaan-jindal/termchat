@@ -140,9 +140,11 @@ themes.
 In-room commands: `/help`, `/clear`, `/nick NAME`, `/color #RRGGBB`,
 `/theme [NAME]`, `/password [NEWPASS]` (host only), `/users` (list who is in
 the room), `/reply ID MESSAGE` (quote a message), `/react ID REACTION`
-(react to a message), `/vc [on|off]` (bare `/vc` toggles; join/leave the
-voice+video call, Linux only for now), `/quit`. In the room `Ctrl+T` toggles
-the mic and `Ctrl+V` toggles the camera.
+(react to a message), `/msg NICK TEXT` (whisper privately, alias `/w`),
+`/r TEXT` (reply to the last whisper), `/vc [on|off]` (bare `/vc`
+toggles; join/leave the voice+video call, Linux only for now),
+`/quit`. In the room `Ctrl+T` toggles the mic and `Ctrl+V` toggles the
+camera.
 
 In-room keys: `PgUp`/`PgDn` scroll, `Tab` accepts completion, `Esc`
 dismisses, `Up`/`Down` browse history, `Alt+Enter` inserts a newline,

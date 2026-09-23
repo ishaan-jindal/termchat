@@ -336,6 +336,11 @@ func readPump(client *Client) {
 			continue
 		}
 
+		if msg.Type == "whisper" {
+			handleWhisper(client, msg)
+			continue
+		}
+
 		if msg.Type == "message" && msg.Text == "" {
 			continue
 		}
@@ -464,6 +469,62 @@ func broadcastToRoom(roomID string, msg Message) {
 	for _, client := range clients {
 		client.trySend(msg)
 	}
+}
+
+// handleWhisper delivers a private message to one nick; never broadcasts.
+func handleWhisper(client *Client, msg Message) {
+	if msg.Text == "" {
+		return
+	}
+	targetNick := sanitizeInput(msg.Target)
+	if targetNick == "" {
+		client.trySend(Message{Type: "system", Text: "usage: target nick required"})
+		return
+	}
+	msg.ReplyToID, msg.ReplyToNick, msg.ReplyToText, msg.Reactions = 0, "", "", nil
+	msg.Nick = client.nickname()
+	msg.Color = client.color()
+	msg.Target = targetNick
+	roomsMutex.RLock()
+	room, exists := rooms[client.RoomID]
+	roomsMutex.RUnlock()
+	if !exists {
+		client.trySend(Message{Type: "system", Text: "no such user " + targetNick})
+		return
+	}
+	room.Mutex.Lock()
+	var matches []*Client
+	for c := range room.Clients {
+		c.mu.Lock()
+		nick := c.Nickname
+		c.mu.Unlock()
+		if nick == targetNick {
+			matches = append(matches, c)
+		}
+	}
+	var target *Client
+	if len(matches) == 1 && matches[0] != client {
+		target = matches[0]
+		msg.Timestamp = time.Now().UnixMilli()
+	}
+	room.Mutex.Unlock()
+	if len(matches) > 1 {
+		client.trySend(Message{Type: "system", Text: "ambiguous nick " + targetNick})
+		return
+	}
+	if target == nil {
+		client.trySend(Message{Type: "system", Text: "no such user " + targetNick})
+		return
+	}
+	client.mu.Lock()
+	wasTyping := client.Typing
+	client.Typing = false
+	client.mu.Unlock()
+	if wasTyping {
+		broadcastUsersList(client.RoomID)
+	}
+	target.trySend(msg)
+	client.trySend(msg)
 }
 
 // handleReaction toggles the sender's vote on a chat message and broadcasts

@@ -7,6 +7,7 @@ type Message struct {
 	Nick        string     `json:"nick,omitempty"`
 	Room        string     `json:"room,omitempty"`
 	Text        string     `json:"text,omitempty"`
+	Target      string     `json:"target,omitempty"`
 	ReplyToID   int64      `json:"reply_to_id,omitempty"`
 	ReplyToNick string     `json:"reply_to_nick,omitempty"`
 	ReplyToText string     `json:"reply_to_text,omitempty"`
