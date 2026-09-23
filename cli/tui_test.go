@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -500,6 +501,104 @@ func TestMentionStylingFollowsTheme(t *testing.T) {
 
 	if strings.Contains(m.messages[0].rendered, "1;30;48;5;255") {
 		t.Errorf("dark mention styling survived theme switch: %q", m.messages[0].rendered)
+	}
+}
+
+func TestMentionNickColoredByRoster(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @BOB!",
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "38;2;0;255;0") {
+		t.Errorf("@BOB not painted in bob's color: %q", m.messages[0].rendered)
+	}
+}
+
+func TestMentionLongestNickWins(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{
+		{Nick: "bob", Color: "#00ff00"},
+		{Nick: "bobby", Color: "#0000ff"},
+	}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @bobby",
+	}))
+
+	rendered := m.messages[0].rendered
+
+	if !strings.Contains(rendered, "38;2;0;0;255") {
+		t.Errorf("@bobby not painted in bobby's color: %q", rendered)
+	}
+
+	if strings.Contains(rendered, "38;2;0;255;0") {
+		t.Errorf("@bobby partially painted as bob: %q", rendered)
+	}
+}
+
+func TestUnknownMentionStaysPlain(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "bob", Color: "#00ff00"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "carol", Color: "#ff0000", Text: "hi @ghost",
+	}))
+
+	if strings.Contains(m.messages[0].rendered, "38;2;0;255;0") {
+		t.Errorf("unknown mention painted with a roster color: %q", m.messages[0].rendered)
+	}
+}
+
+func TestSelfMentionTokenKeepsHighlight(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+	m.users = []UserInfo{{Nick: "alice", Color: "#ff00ff"}}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type: "message", Nick: "bob", Color: "#00ff00", Text: "hey @alice!",
+	}))
+
+	rendered := m.messages[0].rendered
+
+	if !strings.Contains(rendered, "48;5;255") {
+		t.Errorf("self mention lost the highlight: %q", rendered)
+	}
+
+	if !strings.Contains(rendered, "38;2;255;0;255") {
+		t.Errorf("self mention not painted in alice's color: %q", rendered)
+	}
+}
+
+func TestHistoryMentionsColoredOnRoster(t *testing.T) {
+	forceColor(t)
+
+	m := testModel()
+
+	m, _ = update(t, m, IncomingMessage(Message{Type: "history", Messages: []Message{
+		{Type: "message", Nick: "bob", Color: "#00ff00", Text: "hi @carol"},
+	}}))
+
+	if strings.Contains(m.messages[0].rendered, "38;2;0;0;255") {
+		t.Fatalf("mention colored before the roster arrived: %q", m.messages[0].rendered)
+	}
+
+	m, _ = update(t, m, IncomingMessage(Message{
+		Type:  "users_list",
+		Users: []UserInfo{{Nick: "carol", Color: "#0000ff"}},
+	}))
+
+	if !strings.Contains(m.messages[0].rendered, "38;2;0;0;255") {
+		t.Errorf("history mention not colored after users_list: %q", m.messages[0].rendered)
 	}
 }
 
@@ -1157,7 +1256,7 @@ func TestCompletionEscDismisses(t *testing.T) {
 	}
 }
 
-func TestCompletionShrinksViewport(t *testing.T) {
+func TestCompletionKeepsViewport(t *testing.T) {
 	m := testModel()
 
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -1165,15 +1264,16 @@ func TestCompletionShrinksViewport(t *testing.T) {
 
 	m = typeRunes(t, m, "/")
 
-	open := m.viewport.Height
-	want := len(filterCommands("/")) + 2 // rounded border
-
-	if closed-open != want {
-		t.Errorf("viewport shrank by %d rows, want %d", closed-open, want)
+	if m.viewport.Height != closed {
+		t.Errorf(
+			"viewport height = %d while popup is open, want %d",
+			m.viewport.Height,
+			closed,
+		)
 	}
 
-	if open <= 0 {
-		t.Errorf("viewport height = %d while popup is open, want positive", open)
+	if closed <= 0 {
+		t.Errorf("viewport height = %d, want positive", closed)
 	}
 }
 
@@ -1192,6 +1292,106 @@ func TestViewRendersCompletionPopup(t *testing.T) {
 
 	if !strings.Contains(view, "/password [pass]") {
 		t.Error("open popup not rendered with usage")
+	}
+}
+
+func TestCompletionPopupLeavesSidebarVisible(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	for i := 0; i < 20; i++ {
+		m.users = append(m.users, UserInfo{
+			Nick:  fmt.Sprintf("user%02d", i),
+			Color: "#00ff00",
+		})
+	}
+
+	m = typeRunes(t, m, "/")
+
+	overlap := false
+
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.Contains(line, "user1") && strings.Contains(line, "/") {
+			overlap = true
+
+			break
+		}
+	}
+
+	if !overlap {
+		t.Error("popup covered the sidebar: no row pairs a suggestion with a roster nick")
+	}
+}
+
+func TestCompletionPopupStopsAtChatPanel(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.input.SetValue("/")
+	refreshCompletion(&m)
+
+	if !m.showPopup {
+		t.Fatal("popup should be open")
+	}
+
+	popup := renderCompletion(m)
+	first := strings.Split(popup, "\n")[0]
+
+	want := m.viewport.Width + 6 // panel border and padding
+
+	if got := lipgloss.Width(first); got != want {
+		t.Errorf("popup width = %d, want chat panel width %d", got, want)
+	}
+
+	if want >= m.width-4 {
+		t.Errorf(
+			"popup reaches the frame edge (%d >= %d) with the sidebar shown",
+			want,
+			m.width-4,
+		)
+	}
+}
+
+func TestCompletionPopupFitsChatPanel(t *testing.T) {
+	m := testModel()
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = typeRunes(t, m, ":")
+
+	matches := completionMatches(&m)
+
+	if len(matches) != len(emojis) {
+		t.Fatalf("matches = %d, want all %d", len(matches), len(emojis))
+	}
+
+	popup := renderCompletion(m)
+
+	if got := lipgloss.Height(popup); got > m.viewport.Height {
+		t.Errorf("popup height = %d, chat panel height = %d", got, m.viewport.Height)
+	}
+
+	// Sliding to the last row keeps it inside the window.
+	for i := 0; i < len(matches)-1; i++ {
+		m, _ = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
+
+	popup = renderCompletion(m)
+
+	if !strings.Contains(popup, ":sunglasses:") {
+		t.Errorf("selected row not rendered at the end: %q", popup)
+	}
+
+	if strings.Contains(popup, ":+1:") {
+		t.Errorf("window did not slide with the selection: %q", popup)
+	}
+}
+
+func TestOverlayBottomKeepsOverlayTail(t *testing.T) {
+	got := overlayBottom("a\nb\nc", []string{"x", "y", "z", "w"})
+
+	if want := "y\nz\nw"; got != want {
+		t.Errorf("overlayBottom = %q, want %q", got, want)
 	}
 }
 
@@ -1234,8 +1434,8 @@ func TestEmojiAutoOpenMidText(t *testing.T) {
 		t.Fatalf("matches = %d, want all %d", len(matches), len(emojis))
 	}
 
-	if got := m.viewport.Height; closed-got != len(emojis)+2 {
-		t.Errorf("viewport shrank by %d rows, want %d", closed-got, len(emojis)+2)
+	if got := m.viewport.Height; got != closed {
+		t.Errorf("viewport height = %d while popup is open, want %d", got, closed)
 	}
 
 	m = typeRunes(t, m, "fi")

@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `@nick` mentions in the chat log are painted in the mentioned user's
+  color, matching the roster.
+
+### Changed
+
+- The autocomplete popup overlays the chat pane instead of taking its own
+  row: opening it no longer shifts the sidebar or the messages, and it stops
+  at the chat pane's right edge instead of spanning under the sidebar.
+
 ## [cli-v2.4.1] - 2026-09-15
 
 ### Changed

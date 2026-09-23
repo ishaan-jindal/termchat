@@ -386,6 +386,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.usersRequested = false
 			}
 
+			rerenderAll(&m)
+
 		case "media_token":
 			if m.voice == nil && m.tokenPending && msg.Token != "" {
 				m.tokenPending = false
@@ -626,6 +628,12 @@ func (m Model) View() string {
 		Height(m.viewport.Height).
 		Render(m.messagesHeader(scrollInfo) + "\n" + msgView.View())
 
+	if m.showPopup {
+		if popup := renderCompletion(m); popup != "" {
+			messagesPanel = overlayBottom(messagesPanel, strings.Split(popup, "\n"))
+		}
+	}
+
 	var content string
 
 	if m.showSidebar {
@@ -721,12 +729,6 @@ func (m Model) View() string {
 	status := m.renderStatusBar(roomInfo, voiceInfo+videoInfo+onVideoInfo)
 
 	rows := []string{content}
-
-	if m.showPopup {
-		if popup := renderCompletion(m); popup != "" {
-			rows = append(rows, popup)
-		}
-	}
 
 	if m.videoPanelHeight() > 0 {
 		rows = append(rows, m.renderVideoPanel())
@@ -1259,6 +1261,13 @@ func renderMessage(m *Model, msg Message) string {
 		Background(m.theme.base.GetBackground()).
 		Bold(true)
 
+	body := m.theme.base
+
+	if mentioned {
+		body = m.theme.mention
+		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
+	}
+
 	prefix := idPrefix + msg.Nick + ": "
 	availableWidth := max(m.viewport.Width-len(prefix), 10)
 	wrapped := msg.Text
@@ -1267,28 +1276,15 @@ func renderMessage(m *Model, msg Message) string {
 	}
 	lines := strings.Split(wrapped, "\n")
 
-	if mentioned {
-		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
-		for i := range lines {
-			if i == 0 {
-				lines[i] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + m.theme.mention.Render(": "+lines[i])
-			} else {
-				lines[i] = m.theme.mention.Render(strings.Repeat(" ", len(prefix)) + lines[i])
-			}
-		}
-	} else {
-		renderedNick := nickStyle.Render(msg.Nick)
-		for i := range lines {
-			if i == 0 {
-				// Plain segments are themed explicitly: the reset at
-				// the end of a colored span would otherwise drop the
-				// background for the rest of the line.
-				lines[i] = m.theme.system.Render(idPrefix) + renderedNick + m.theme.base.Render(": "+lines[i])
-			} else {
-				lines[i] = m.theme.base.Render(strings.Repeat(" ", len(prefix)) + lines[i])
-			}
+	for i := range lines {
+		if i == 0 {
+			lines[i] = renderMentions(m, body, ": "+lines[i])
+		} else {
+			lines[i] = renderMentions(m, body, strings.Repeat(" ", len(prefix))+lines[i])
 		}
 	}
+
+	lines[0] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + lines[0]
 
 	var out []string
 
@@ -1304,6 +1300,52 @@ func renderMessage(m *Model, msg Message) string {
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// renderMentions paints @nick tokens matching a roster member in their color.
+func renderMentions(m *Model, base lipgloss.Style, text string) string {
+	var out strings.Builder
+
+	plain := 0
+
+	for i := 0; i < len(text); {
+		if text[i] != '@' {
+			i++
+			continue
+		}
+
+		nick, color := "", ""
+
+		for _, u := range m.users {
+			end := i + 1 + len(u.Nick)
+
+			if end > len(text) || len(u.Nick) <= len(nick) {
+				continue
+			}
+
+			if strings.EqualFold(text[i+1:end], u.Nick) {
+				nick, color = u.Nick, u.Color
+			}
+		}
+
+		if nick == "" {
+			i++
+			continue
+		}
+
+		out.WriteString(base.Render(text[plain:i]))
+		out.WriteString(base.
+			Foreground(lipgloss.Color(color)).
+			Bold(true).
+			Render(text[i : i+1+len(nick)]))
+
+		i += 1 + len(nick)
+		plain = i
+	}
+
+	out.WriteString(base.Render(text[plain:]))
+
+	return out.String()
 }
 
 // formatQuote renders the quoted message of a reply as a dim quote line, or
@@ -1405,8 +1447,6 @@ func dismissCompletion(m *Model) {
 
 	m.showPopup = false
 	m.selected = 0
-
-	resizeViewport(m)
 }
 
 // acceptCompletion inserts the selected suggestion in place of the current
@@ -1425,31 +1465,26 @@ func acceptCompletion(m *Model) {
 	value := m.input.Value()
 	m.input.SetValue(value[:len(value)-tokenLen] + matches[m.selected].insert)
 	m.input.CursorEnd()
-
-	resizeViewport(m)
 }
 
 // resizeViewport refits the viewport height from the terminal size, the
-// input height and the popup height.
+// input height and the video panel height.
 func resizeViewport(m *Model) {
-	popupHeight := len(completionMatches(m))
-	if popupHeight > 0 {
-		popupHeight += 2 // rounded border
-	}
-
 	m.viewport.Height = max(
-		m.height-textareaHeight(m.input)-popupHeight-7-m.videoPanelHeight(),
+		m.height-textareaHeight(m.input)-7-m.videoPanelHeight(),
 		5,
 	)
 }
 
+// renderCompletion renders the popup panel, capped to the chat panel's
+// remaining rows and windowed so the selected row stays visible.
 func renderCompletion(m Model) string {
 	matches := completionMatches(&m)
 	if len(matches) == 0 {
 		return ""
 	}
 
-	sel := min(m.selected, len(matches)-1)
+	sel := min(max(m.selected, 0), len(matches)-1)
 
 	width := 0
 
@@ -1457,14 +1492,19 @@ func renderCompletion(m Model) string {
 		width = max(width, len(s.primary))
 	}
 
-	rows := make([]string, 0, len(matches))
+	maxRows := max(m.viewport.Height-2, 1)
 
-	for i, s := range matches {
+	start := min(max(sel-maxRows+1, 0), max(len(matches)-maxRows, 0))
+	end := min(start+maxRows, len(matches))
+
+	rows := make([]string, 0, end-start)
+
+	for i, s := range matches[start:end] {
 		// Each column is rendered with one style so the selected row's
 		// background is not cut short by an inner reset sequence.
 		rowStyle := m.theme.base
 
-		if i == sel {
+		if start+i == sel {
 			rowStyle = m.theme.completionSelected
 		}
 
@@ -1480,8 +1520,21 @@ func renderCompletion(m Model) string {
 	}
 
 	return m.theme.panel.
-		Width(m.width - 6).
+		Width(m.viewport.Width + 4).
 		Render(strings.Join(rows, "\n"))
+}
+
+// overlayBottom replaces the last lines of under with over; both blocks
+// render at the same width, so whole lines are swapped.
+func overlayBottom(under string, over []string) string {
+	lines := strings.Split(under, "\n")
+
+	start := max(len(lines)-len(over), 0)
+	over = over[max(len(over)-len(lines), 0):]
+
+	copy(lines[start:], over)
+
+	return strings.Join(lines, "\n")
 }
 
 func textareaHeight(input textarea.Model) int {
