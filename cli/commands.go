@@ -85,6 +85,12 @@ func init() {
 			handler:     cmdMsg,
 		},
 		{
+			name:        "/w",
+			usage:       "/w <nick> <text>",
+			description: "alias of /msg",
+			handler:     cmdMsg,
+		},
+		{
 			name:        "/r",
 			usage:       "/r <text>",
 			description: "reply to the last whisper",
@@ -203,6 +209,15 @@ func matchSuggestions(value string, users []UserInfo, nick string) ([]suggestion
 
 		return nil, 0
 
+	case strings.HasPrefix(value, "/msg ") || strings.HasPrefix(value, "/w "):
+		parts := strings.Split(value, " ")
+
+		if len(parts) == 2 {
+			return whisperSuggestions(parts[1], users, nick), len(parts[1])
+		}
+
+		return nil, 0
+
 	default:
 		token := value[strings.LastIndexAny(value, " \t\n")+1:]
 
@@ -296,6 +311,33 @@ func mentionSuggestions(query string, users []UserInfo, self string) []suggestio
 			out = append(out, suggestion{
 				primary:      "@" + u.Nick,
 				insert:       "@" + u.Nick + " ",
+				primaryStyle: &s,
+			})
+		}
+	}
+
+	return out
+}
+
+// whisperSuggestions completes the nick argument of /msg and /w.
+func whisperSuggestions(query string, users []UserInfo, self string) []suggestion {
+	query = strings.ToLower(query)
+
+	var out []suggestion
+
+	for _, u := range users {
+		if u.Nick == self {
+			continue
+		}
+
+		if strings.HasPrefix(strings.ToLower(u.Nick), query) {
+			s := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(u.Color)).
+				Bold(true)
+
+			out = append(out, suggestion{
+				primary:      u.Nick,
+				insert:       u.Nick + " ",
 				primaryStyle: &s,
 			})
 		}
