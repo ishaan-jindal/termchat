@@ -1283,10 +1283,12 @@ func renderMessage(m *Model, msg Message) string {
 	tag, display := "", msg.Nick
 	if msg.Type == "whisper" {
 		tag = "[whisper] "
-		display = "from " + msg.Nick
+		who, dir := msg.Nick, "from "
 		if msg.Nick == m.nick {
-			display = "to " + msg.Target
+			who, dir = msg.Target, "to "
 		}
+		// Server stores the stripped form, so one @ suffices.
+		display = dir + "@" + strings.TrimPrefix(who, "@")
 	}
 
 	prefix := idPrefix + tag + display + ": "

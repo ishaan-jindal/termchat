@@ -323,7 +323,7 @@ func mentionSuggestions(query string, users []UserInfo, self string) []suggestio
 
 // whisperSuggestions completes the nick argument of /msg and /w.
 func whisperSuggestions(query string, users []UserInfo, self string) []suggestion {
-	query = strings.ToLower(query)
+	query = strings.TrimPrefix(strings.ToLower(query), "@")
 
 	var out []suggestion
 
@@ -338,8 +338,8 @@ func whisperSuggestions(query string, users []UserInfo, self string) []suggestio
 				Bold(true)
 
 			out = append(out, suggestion{
-				primary:      u.Nick,
-				insert:       u.Nick + " ",
+				primary:      "@" + u.Nick,
+				insert:       "@" + u.Nick + " ",
 				primaryStyle: &s,
 			})
 		}
@@ -538,7 +538,7 @@ func cmdMsgAs(m *Model, args []string, name string) (bool, bool) {
 		return true, false
 	}
 
-	target := args[0]
+	target := strings.TrimPrefix(args[0], "@")
 	text := strings.TrimSpace(strings.Join(args[1:], " "))
 	if text == "" {
 		appendUI(m, "usage: "+name+" <nick> <text>")
