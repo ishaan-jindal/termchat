@@ -88,7 +88,9 @@ func init() {
 			name:        "/w",
 			usage:       "/w <nick> <text>",
 			description: "alias of /msg",
-			handler:     cmdMsg,
+			handler: func(m *Model, args []string) (bool, bool) {
+				return cmdMsgAs(m, args, "/w")
+			},
 		},
 		{
 			name:        "/r",
@@ -526,15 +528,20 @@ func cmdReply(m *Model, args []string) (bool, bool) {
 
 // cmdMsg sends a private whisper; the server echoes it to both sides.
 func cmdMsg(m *Model, args []string) (bool, bool) {
+	return cmdMsgAs(m, args, "/msg")
+}
+
+// cmdMsgAs is cmdMsg under the invoked alias, used for usage hints.
+func cmdMsgAs(m *Model, args []string, name string) (bool, bool) {
 	if len(args) < 2 {
-		appendUI(m, "usage: /msg <nick> <text>")
+		appendUI(m, "usage: "+name+" <nick> <text>")
 		return true, false
 	}
 
 	target := args[0]
 	text := strings.TrimSpace(strings.Join(args[1:], " "))
 	if text == "" {
-		appendUI(m, "usage: /msg <nick> <text>")
+		appendUI(m, "usage: "+name+" <nick> <text>")
 		return true, false
 	}
 
