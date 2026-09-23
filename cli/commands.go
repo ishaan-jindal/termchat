@@ -79,6 +79,18 @@ func init() {
 			handler:     cmdReact,
 		},
 		{
+			name:        "/msg",
+			usage:       "/msg <nick> <text>",
+			description: "whisper privately to a user",
+			handler:     cmdMsg,
+		},
+		{
+			name:        "/r",
+			usage:       "/r <text>",
+			description: "reply to the last whisper",
+			handler:     cmdR,
+		},
+		{
 			name:        "/vc",
 			usage:       "/vc [on|off]",
 			description: "join or leave the voice/video call",
@@ -465,6 +477,50 @@ func cmdReply(m *Model, args []string) (bool, bool) {
 		Type:      "message",
 		Text:      text,
 		ReplyToID: id,
+	})
+
+	return true, false
+}
+
+// cmdMsg sends a private whisper; the server echoes it to both sides.
+func cmdMsg(m *Model, args []string) (bool, bool) {
+	if len(args) < 2 {
+		appendUI(m, "usage: /msg <nick> <text>")
+		return true, false
+	}
+
+	target := args[0]
+	text := strings.TrimSpace(strings.Join(args[1:], " "))
+	if text == "" {
+		appendUI(m, "usage: /msg <nick> <text>")
+		return true, false
+	}
+
+	trySend(m, Message{
+		Type:   "whisper",
+		Target: target,
+		Text:   text,
+	})
+
+	return true, false
+}
+
+// cmdR replies to the last user who whispered; nothing is sent yet.
+func cmdR(m *Model, args []string) (bool, bool) {
+	text := strings.TrimSpace(strings.Join(args, " "))
+	if text == "" {
+		return true, false
+	}
+
+	if m.lastWhisperer == "" {
+		appendUI(m, "no one has whispered you yet")
+		return true, false
+	}
+
+	trySend(m, Message{
+		Type:   "whisper",
+		Target: m.lastWhisperer,
+		Text:   text,
 	})
 
 	return true, false

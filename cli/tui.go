@@ -65,6 +65,9 @@ type Model struct {
 	users     []UserInfo
 	connected bool
 
+	// lastWhisperer is the nick of the last user who whispered us.
+	lastWhisperer string
+
 	// serverURL, color, and conn.password carry the session credentials
 	// needed to rejoin after a transient network drop.
 	serverURL string
@@ -347,7 +350,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 
-		case "system", "message":
+		case "system", "message", "whisper":
+			if msg.Type == "whisper" && msg.Nick != "" && msg.Nick != m.nick {
+				m.lastWhisperer = msg.Nick
+			}
+
 			appendFormattedMessage(&m, Message(msg))
 
 		case "reaction":
@@ -1138,12 +1145,15 @@ func appendFormattedMessage(m *Model, msg Message) {
 	case "system":
 		appendLine(m, chatLine{kind: lineSystem, msg: msg})
 
-	case "message":
+	case "message", "whisper":
 		appendLine(m, chatLine{kind: lineChat, msg: msg})
 
 		title := ""
 
 		switch {
+		case msg.Type == "whisper" && msg.Nick != m.nick:
+			title = fmt.Sprintf("%s whispered you", msg.Nick)
+
 		case isMention(msg, m.nick):
 			title = fmt.Sprintf("%s mentioned you", msg.Nick)
 
@@ -1268,7 +1278,18 @@ func renderMessage(m *Model, msg Message) string {
 		nickStyle = nickStyle.Background(m.theme.mention.GetBackground())
 	}
 
-	prefix := idPrefix + msg.Nick + ": "
+	// Whispers reuse the chat line; the tag paints them distinctly and
+	// the echo names its target instead of its sender.
+	tag, display := "", msg.Nick
+	if msg.Type == "whisper" {
+		tag = "[whisper] "
+		display = "from " + msg.Nick
+		if msg.Nick == m.nick {
+			display = "to " + msg.Target
+		}
+	}
+
+	prefix := idPrefix + tag + display + ": "
 	availableWidth := max(m.viewport.Width-len(prefix), 10)
 	wrapped := msg.Text
 	if runtime.GOARCH != "386" {
@@ -1284,7 +1305,7 @@ func renderMessage(m *Model, msg Message) string {
 		}
 	}
 
-	lines[0] = m.theme.system.Render(idPrefix) + nickStyle.Render(msg.Nick) + lines[0]
+	lines[0] = m.theme.system.Render(idPrefix) + m.theme.accent.Render(tag) + nickStyle.Render(display) + lines[0]
 
 	var out []string
 
