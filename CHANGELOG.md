@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [cli-v2.5.0] - 2026-09-23
 
 ### Added
 
