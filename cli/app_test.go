@@ -677,3 +677,147 @@ func TestHubViewHasNoUnpaintedCells(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateHomeKeys(t *testing.T) {
+	t.Run("ctrl+c quits", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		_, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlC})
+		if cmd == nil {
+			t.Error("ctrl+c returned nil cmd, want quit")
+		}
+	})
+
+	t.Run("esc quits", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		_, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyEscape})
+		if cmd == nil {
+			t.Error("esc returned nil cmd, want quit")
+		}
+	})
+
+	t.Run("ctrl+r busy ignores", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.busy = true
+		_, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlR})
+		if cmd != nil {
+			t.Errorf("busy ctrl+r returned cmd, want nil")
+		}
+	})
+
+	t.Run("ctrl+r rescans", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.onlineDone = true
+		a.lanDone = true
+		a.rows = []hubRow{{room: "ABCD"}}
+		a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlR})
+		if cmd == nil {
+			t.Fatal("idle ctrl+r returned nil cmd, want rescan")
+		}
+		if a.onlineDone || a.lanDone || a.rows != nil || a.sel != 0 {
+			t.Errorf("rescan did not clear lists: %+v", a)
+		}
+	})
+
+	t.Run("ctrl+h guards", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.busy = true
+		_, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlH})
+		if cmd != nil {
+			t.Error("busy ctrl+h returned cmd, want nil")
+		}
+
+		a = testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.hostMode = true
+		_, cmd = updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlH})
+		if cmd != nil {
+			t.Error("host ctrl+h returned cmd, want nil")
+		}
+	})
+
+	t.Run("ctrl+h hosts", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyCtrlH})
+		if cmd == nil {
+			t.Fatal("idle ctrl+h returned nil cmd, want host")
+		}
+		if !a.busy {
+			t.Error("hub not busy after ctrl+h")
+		}
+	})
+
+	t.Run("list arrows move sel", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "", false)
+		a.rows = []hubRow{{room: "AAAA"}, {room: "BBBB"}}
+		a.focus = focusList
+		a.sel = 0
+		a, _ = updateApp(t, a, tea.KeyMsg{Type: tea.KeyDown})
+		if a.sel != 1 {
+			t.Errorf("down sel = %d, want 1", a.sel)
+		}
+		a, _ = updateApp(t, a, tea.KeyMsg{Type: tea.KeyUp})
+		if a.sel != 0 {
+			t.Errorf("up sel = %d, want 0", a.sel)
+		}
+	})
+
+	t.Run("form arrows cycle focus", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "", false)
+		a.focus = focusNick
+		a, _ = updateApp(t, a, tea.KeyMsg{Type: tea.KeyDown})
+		if a.focus == focusNick || a.focus == focusList {
+			t.Errorf("down focus = %d, want another form field", a.focus)
+		}
+	})
+
+	t.Run("enter on row joins", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "", false)
+		a.rows = []hubRow{{online: true, room: "HUB3"}}
+		a.focus = focusList
+		a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd == nil {
+			t.Fatal("enter on row returned nil cmd, want join")
+		}
+		if a.room.Value() != "HUB3" {
+			t.Errorf("room = %q, want HUB3", a.room.Value())
+		}
+	})
+
+	t.Run("enter on form joins", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd == nil {
+			t.Fatal("enter on form returned nil cmd, want join")
+		}
+		if !a.busy {
+			t.Error("hub not busy after enter")
+		}
+	})
+
+	t.Run("typing guards", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.busy = true
+		_, cmd := updateApp(t, a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+		if cmd != nil {
+			t.Error("busy typing returned cmd, want nil")
+		}
+
+		a = testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a.rows = []hubRow{{room: "AAAA"}}
+		a.focus = focusList
+		_, cmd = updateApp(t, a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+		if cmd != nil {
+			t.Error("list typing returned cmd, want nil")
+		}
+	})
+
+	t.Run("window size", func(t *testing.T) {
+		a := testHub("ws://example.test/ws", "http://example.test", "FROG", false)
+		a, _ = updateApp(t, a, tea.WindowSizeMsg{Width: 100, Height: 30})
+		if a.width != 100 || a.height != 30 {
+			t.Errorf("size = %dx%d, want 100x30", a.width, a.height)
+		}
+		if a.room.Width <= 0 {
+			t.Error("room width not set by WindowSizeMsg")
+		}
+	})
+}
