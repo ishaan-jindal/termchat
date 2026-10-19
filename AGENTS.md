@@ -124,6 +124,10 @@ Use `just` commands instead of raw `go` where one exists (see `just --list`).
 - `main` is protected: PR + required checks (`gate / format`,
   `gate / test`). Never push directly.
 - Commit signing is mandatory (`git commit -s -S`).
+- Never add agent attribution. No `Co-authored-by:` trailers for any AI,
+  agent, or tool (Cursor, Claude, OpenCode, Codex, etc.), and no "Generated
+  with" or "Made with" lines in commits, PR or issue titles and bodies, or
+  comments. Strip any that a tool inserts automatically.
 
 ## Deployment
 
